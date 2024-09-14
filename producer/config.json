@@ -1,0 +1,15 @@
+{
+  "zero_mq_protocol": "push",
+  "max_backlog": 100,
+  "logging_level": "INFO",
+  "logging_type": "FILE",
+  "msg_prod_rate": 10,
+  "db_conn_config": {
+    "host": "postgress",
+    "port": 5432,
+    "user": "dbuser",
+    "password": "securepassword",
+    "dbname": "tasks"
+  }
+}
+

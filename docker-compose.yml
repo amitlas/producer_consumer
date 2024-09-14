@@ -1,0 +1,54 @@
+services:
+  producer:
+    build: ./producer
+    container_name: producer
+    networks:
+      - zmq_net
+      - db_net
+    ports:
+      - "5555:5555"
+    volumes:
+      - ./producer/config.json:/app/config.json
+      - ./producer/logs:/app/logs
+    depends_on:
+      - postgress
+
+  consumer:
+    build: ./consumer
+    container_name: consumer
+    depends_on:
+      - producer
+      - postgress
+    networks:
+      - zmq_net
+      - db_net
+    volumes:
+      - ./consumer/logs:/app/logs
+      - ./consumer/config.json:/app/config.json
+
+  postgress:
+    image: postgres:14-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: securepassword
+      POSTGRES_DB: mydatabase
+    networks:
+      - db_net
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+
+
+networks:
+  zmq_net:
+    driver: bridge
+  db_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
