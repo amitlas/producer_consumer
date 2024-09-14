@@ -1,6 +1,8 @@
 services:
   producer:
-    build: ./producer
+    build:
+      context: .
+      dockerfile: ./producer/Dockerfile
     container_name: producer
     networks:
       - zmq_net
@@ -14,7 +16,9 @@ services:
       - postgress
 
   consumer:
-    build: ./consumer
+    build:
+      context: .
+      dockerfile: ./consumer/Dockerfile
     container_name: consumer
     depends_on:
       - producer
@@ -30,9 +34,9 @@ services:
     image: postgres:14-alpine
     container_name: postgres
     environment:
-      POSTGRES_USER: dbuser
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: securepassword
-      POSTGRES_DB: mydatabase
+      POSTGRES_DB: mydb
     networks:
       - db_net
     ports:
