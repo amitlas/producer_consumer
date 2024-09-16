@@ -4,9 +4,9 @@ import (
     "flag"
     "fmt"
     "os"
-    "embed"
     "bytes"
     "strings"
+    "path/filepath"
 
     "encoding/json"
 
@@ -15,11 +15,24 @@ import (
 )
 
 const zeroMQPort = 5555
-const logsPath string = "/app/logs/"
+const logRelativePath = "LOG_RELATIVE_PATH"
+const baseAppPath = "BASE_APP_PATH"
+
+func getEnvVar(varName string) (string, error) {
+    val := os.Getenv(varName)
+    if ("" == val) {
+        return "", fmt.Errorf("%s environment variable not set or empty", varName)
+    }
+    return val, nil
+}
+
 
 var appName string
+/*
+ *decided not to go with embed here, to allow dynmic load of the file from container, for easier config update
 //go:embed config.json
 var embeddedConfigFile embed.FS
+*/
 var commMethodMap = map[string]zmq.Type{
     "push": zmq.PUSH,
     "pull": zmq.PULL,
@@ -41,30 +54,6 @@ func HandleVersionFlag(version *string) {
     }
 }
 
-func LoadConfig[T any](configFileName string, validateFunc func(*T) error) (*T, error) {
-    log.Printf("Loading config from file: %s", configFileName)
-    configFile, err := embeddedConfigFile.ReadFile(configFileName)
-    if err != nil {
-        return nil, fmt.Errorf("failed to open config file: %s", err)
-    }
-
-    var config T
-    err = json.Unmarshal(configFile, &config)
-    if err != nil {
-        return nil, fmt.Errorf("failed decoding config file: %s", err)
-    }
-
-    if (nil != validateFunc) {
-        err := validateFunc(&config)
-        if (nil != err) {
-            return nil, fmt.Errorf("validation failed: %s", err)
-        }
-    }
-
-    log.Printf("Loaded configuration: %+v\n", config)
-    return &config, nil
-}
-
 func SetLoggingLevel(lvl string) error {
     level, ok := logVerMap[strings.ToLower(lvl)]
     if (!ok) {
@@ -75,6 +64,47 @@ func SetLoggingLevel(lvl string) error {
     log.SetLevel(level)
     return nil
 }
+
+func LoadConfig[T any](fileName string, validateFunc func(*T) error) (*T, error) {
+    appPath, err := getEnvVar(baseAppPath)
+    if (nil != err) {
+        return nil, err
+    }
+
+    configFilePath := filepath.Join(appPath, fileName)
+    log.Printf("Loading config from file: %s", configFilePath)
+
+    /*
+     * replace embed for easier config load
+    configFile, err := embeddedConfigFile.ReadFile(configFilePath)
+    if err != nil {
+        return nil, fmt.Errorf("failed to open config file: %s", err)
+    }
+    */
+    configFile, err := os.ReadFile(configFilePath)
+    if err != nil {
+        return nil, fmt.Errorf("failed to open config file: %s", err)
+    }
+
+    // Unmarshal the JSON configuration.
+    var config T
+    err = json.Unmarshal(configFile, &config)
+    if err != nil {
+        return nil, fmt.Errorf("failed decoding config file: %s", err)
+    }
+
+    // Validate the configuration.
+    if validateFunc != nil {
+        err := validateFunc(&config)
+        if err != nil {
+            return nil, fmt.Errorf("validation failed: %s", err)
+        }
+    }
+
+    log.Printf("Loaded configuration: %+v\n", config)
+    return &config, nil
+}
+
 
 type loggerFuncCB func() (func(), error)
 
@@ -88,7 +118,16 @@ func setLoggingConsole() (func(), error) {
 }
 
 func setLoggingFile() (func(), error) {
-    path := fmt.Sprintf("%s/%s.log", logsPath, appName)
+    appPath, err := getEnvVar(baseAppPath)
+    if (nil != err) {
+        return nil, err
+    }
+    logsRelPath, err := getEnvVar(logRelativePath)
+    if (nil != err) {
+        return nil, err
+    }
+
+    path := filepath.Join(appPath, logsRelPath, appName)
     logFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
     if err != nil {
         return nil, err

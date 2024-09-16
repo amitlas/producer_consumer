@@ -14,6 +14,10 @@ services:
       - ./logs:/app/logs
     depends_on:
       - postgress
+    environment:
+      - LOG_RELATIVE_PATH=/logs
+      - BASE_APP_PATH=/app
+
 
   consumer:
     build:
@@ -29,6 +33,9 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./consumer/config.json:/app/config.json
+    environment:
+      - LOG_RELATIVE_PATH=/logs
+      - BASE_APP_PATH=/app
 
   postgress:
     image: postgres:14-alpine

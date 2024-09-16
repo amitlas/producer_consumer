@@ -1,7 +1,7 @@
 gOCKER_COMPOSE_FILE=docker-compose.yml
 SCRIPT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 GO_PRODUCER_DIR=$(SCRIPT_DIR)/producer
-GO_CONSUMER_DIR=$(script_dir)/consumer
+GO_CONSUMER_DIR=$(SCRIPT_DIR)/consumer
 DOCKER_COMPOSE_FILE=$(SCRIPT_DIR)/docker-compose.yml
 LOGS_PATH=$(SCRIPT_DIR)/logs/
 

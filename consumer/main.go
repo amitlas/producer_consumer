@@ -3,7 +3,6 @@ package main
 import (
     "fmt"
     "time"
-    "embed"
     "sync"
     "context"
 
@@ -16,9 +15,6 @@ import (
     log "github.com/sirupsen/logrus"
     _ "github.com/lib/pq" // PostgreSQL driver
 )
-
-//go:embed config.json
-var embeddedConfigFile embed.FS
 
 const taskReadingMsgBuffSize = 100
 const taskProcessingMsgBuffSize = 100
