@@ -11,6 +11,7 @@ type Config struct {
     Logging struct {
         Level	string			`json:"level"`
         Type		string			`json:"type"`
+        Output      string          `json:"output"`
     } `json:"logging"`
     /*
     Monitoring struct {

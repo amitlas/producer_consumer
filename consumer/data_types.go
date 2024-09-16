@@ -10,8 +10,9 @@ type Config struct {
     ZMQHostName     string              `json:"zmq_host_name"`
     DBConnConfig		utils.DBConfig	`json:"db_conn_config"`
     Logging struct {
-        Level	string			`json:"level"`
-        Type		string			`json:"type"`
+        Level       string          `json:"level"`
+        Type        string          `json:"type"`
+        Output      string          `json:"output"`
     } `json:"logging"`
     /*
     Monitoring struct {

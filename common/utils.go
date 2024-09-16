@@ -15,7 +15,9 @@ import (
 )
 
 const zeroMQPort = 5555
+const logsPath string = "/app/logs/"
 
+var appName string
 //go:embed config.json
 var embeddedConfigFile embed.FS
 var commMethodMap = map[string]zmq.Type{
@@ -72,6 +74,61 @@ func SetLoggingLevel(lvl string) error {
     log.SetFormatter(&log.TextFormatter{})
     log.SetLevel(level)
     return nil
+}
+
+type loggerFuncCB func() (func(), error)
+
+func setLoggingConsole() (func(), error) {
+    log.SetOutput(os.Stdout)
+    log.SetFormatter(&log.TextFormatter{
+        FullTimestamp: true,
+    })
+
+    return nil, nil
+}
+
+func setLoggingFile() (func(), error) {
+    path := fmt.Sprintf("%s/%s.log", logsPath, appName)
+    logFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+    if err != nil {
+        return nil, err
+    }
+
+    log.SetOutput(logFile)
+    log.SetFormatter(&log.TextFormatter{
+        FullTimestamp: true,
+    })
+
+    cleanup := func() {
+        if err := logFile.Close(); err != nil {
+            log.Errorf("Failed to close log file: %v", err)
+        }
+    }
+
+    return cleanup, nil
+}
+
+var logOutputMap = map[string]loggerFuncCB{
+    "console": setLoggingConsole,
+    "file":    setLoggingFile,
+}
+
+func SetLoggingOutput(output string) (func(), error) {
+    cb, ok := logOutputMap[output]
+    if !ok {
+        return nil, fmt.Errorf("invalid log output type[%s] requested", output)
+    }
+
+    cleanupCB, err := cb()
+    if err != nil {
+        return nil, err
+    }
+
+    return cleanupCB, nil
+}
+
+func SetAppName(name string) {
+    appName = name
 }
 
 func ConnectToMQ(comm string, serverName *string) (*zmq.Socket, error) {

@@ -1,10 +1,9 @@
 gOCKER_COMPOSE_FILE=docker-compose.yml
 SCRIPT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 GO_PRODUCER_DIR=$(SCRIPT_DIR)/producer
-GO_CONSUMER_DIR=$(SCRIPT_DIR)/consumer
+GO_CONSUMER_DIR=$(script_dir)/consumer
 DOCKER_COMPOSE_FILE=$(SCRIPT_DIR)/docker-compose.yml
-PRODUCER_BINARY=$(GO_PRODUCER_DIR)/producer
-CONSUMER_BINARY=$(GO_CONSUMER_DIR)/consumer
+LOGS_PATH=$(SCRIPT_DIR)/logs/
 
 # Paths to the version files for producer and consumer
 PRODUCER_VERSION_FILE = producer/VERSION
@@ -47,9 +46,8 @@ consumer: mod_tidy_consumer sqlc
 	docker-compose build consumer --build-arg VERSION=$$VERSION || { echo "Consumer build failed! Exiting..."; exit 1; }
 
 clean:
-	@echo "Cleaning up binaries..."
-	rm -f $(PRODUCER_BINARY)
-	rm -f $(CONSUMER_BINARY)
+	@echo "Cleaning up logs..."
+	rm -f $(LOGS_PATH)/*
 
 run: stop
 	@echo "Running Docker Compose..."

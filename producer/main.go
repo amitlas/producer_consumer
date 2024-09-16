@@ -127,8 +127,8 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
 
 
 func main() {
-
     utils.HandleVersionFlag(&version)
+    utils.SetAppName("producer")
 
     config, err := utils.LoadConfig[Config]("config.json", validateConfig)
     if (nil != err) {
@@ -138,6 +138,14 @@ func main() {
     err = utils.SetLoggingLevel(config.Logging.Level)
     if (nil != err) {
         log.Fatalf("Failed to set logging: %s", err)
+    }
+
+    cleanupCB, err := utils.SetLoggingOutput(config.Logging.Output)
+    if (nil != err) {
+        log.Fatalf("Failed to set logging: %s", err)
+    }
+    if (nil != cleanupCB) {
+        defer cleanupCB()
     }
 
     dbConn, err := utils.ConnectToDB(&config.DBConnConfig)
@@ -170,7 +178,7 @@ func main() {
             Type:		int32(rand.Intn(taskTypeRange)),
             Value:		int32(rand.Intn(taskValueRange)),
             State:		db.TaskStatePending,
-            CreationTime:	float64(time.Now().UTC().Unix()),
+            CreationTime: float64(time.Now().UTC().Unix()),
         }
 
         log.Debug("creating task and writing to db")

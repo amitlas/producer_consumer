@@ -11,7 +11,7 @@ services:
       - "5555:5555"
     volumes:
       - ./producer/config.json:/app/config.json
-      - ./producer/logs:/app/logs
+      - ./logs:/app/logs
     depends_on:
       - postgress
 
@@ -27,7 +27,7 @@ services:
       - zmq_net
       - db_net
     volumes:
-      - ./consumer/logs:/app/logs
+      - ./logs:/app/logs
       - ./consumer/config.json:/app/config.json
 
   postgress:

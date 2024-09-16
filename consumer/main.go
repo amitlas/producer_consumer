@@ -150,6 +150,7 @@ func startTaskHandlingWorkers(numWorkers int, wg *sync.WaitGroup) {
 
 func main() {
     utils.HandleVersionFlag(&version)
+    utils.SetAppName("consumer")
 
     config, err := utils.LoadConfig[Config]("config.json", validateConfig)
     if (nil != err) {
@@ -159,6 +160,14 @@ func main() {
     err = utils.SetLoggingLevel(config.Logging.Level)
     if (nil != err) {
         log.Fatalf("Failed to set logging: %s", err)
+    }
+
+    cleanupCB, err := utils.SetLoggingOutput(config.Logging.Output)
+    if (nil != err) {
+        log.Fatalf("Failed to set logging: %s", err)
+    }
+    if (nil != cleanupCB) {
+        defer cleanupCB()
     }
 
     dbConn, err := utils.ConnectToDB(&config.DBConnConfig)

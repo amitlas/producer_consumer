@@ -104,7 +104,7 @@ func (q *Queries) GetTaskByIDUpdateState(ctx context.Context, arg GetTaskByIDUpd
 
 const updateTaskToState = `-- name: UpdateTaskToState :exec
 UPDATE tasks
-SET state = $2, last_update_time = clock_timestamp() AT TIME ZONE 'UTC'
+SET state = $2, last_update_time = EXTRACT(EPOCH FROM clock_timestamp() AT TIME ZONE 'UTC')
 WHERE id = $1
 `
 

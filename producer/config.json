@@ -12,7 +12,8 @@
     "dbname": "mydb"
   },
   "logging": {
-      "level": "debug"
+      "level": "info",
+      "output": "file"
   }
 }
 
