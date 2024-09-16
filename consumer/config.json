@@ -1,13 +1,16 @@
 {
   "zero_mq_protocol":	"pull",
   "rate_limit":			1000,
-"zmq_host_name": "producer",
+  "zmq_host_name": "producer",
   "db_conn_config": {
     "host": "postgress",
     "port": 5432,
     "user": "postgres",
     "password": "securepassword",
     "dbname": "mydb"
+  },
+  "logging": {
+      "level": "debug"
   }
 }
 

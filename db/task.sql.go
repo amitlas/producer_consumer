@@ -6,7 +6,7 @@
 package db
 
 import (
-    "context"
+	"context"
 )
 
 const createTaskAndGetBacklog = `-- name: CreateTaskAndGetBacklog :one
@@ -16,32 +16,32 @@ WITH inserted_task AS (
     RETURNING id
 )
 SELECT
-(SELECT id FROM inserted_task) AS task_id,
-(SELECT COUNT(*) FROM tasks WHERE tasks.state = 'pending') AS backlog_count
+    (SELECT id FROM inserted_task) AS task_id,
+    (SELECT COUNT(*) FROM tasks WHERE tasks.state = 'pending') AS backlog_count
 `
 
 type CreateTaskAndGetBacklogParams struct {
-    Type         int32
-    Value        int32
-    State        TaskState
-    CreationTime float64
+	Type         int32
+	Value        int32
+	State        TaskState
+	CreationTime float64
 }
 
 type CreateTaskAndGetBacklogRow struct {
-    TaskID       int32
-    BacklogCount int64
+	TaskID       int32
+	BacklogCount int64
 }
 
 func (q *Queries) CreateTaskAndGetBacklog(ctx context.Context, arg CreateTaskAndGetBacklogParams) (CreateTaskAndGetBacklogRow, error) {
-    row := q.db.QueryRowContext(ctx, createTaskAndGetBacklog,
-    arg.Type,
-    arg.Value,
-    arg.State,
-    arg.CreationTime,
-)
-var i CreateTaskAndGetBacklogRow
-err := row.Scan(&i.TaskID, &i.BacklogCount)
-return i, err
+	row := q.db.QueryRowContext(ctx, createTaskAndGetBacklog,
+		arg.Type,
+		arg.Value,
+		arg.State,
+		arg.CreationTime,
+	)
+	var i CreateTaskAndGetBacklogRow
+	err := row.Scan(&i.TaskID, &i.BacklogCount)
+	return i, err
 }
 
 const getTaskByID = `-- name: GetTaskByID :one
@@ -51,55 +51,55 @@ WHERE id = $1
 `
 
 func (q *Queries) GetTaskByID(ctx context.Context, id int32) (Task, error) {
-    row := q.db.QueryRowContext(ctx, getTaskByID, id)
-    var i Task
-    err := row.Scan(
-        &i.ID,
-        &i.Type,
-        &i.Value,
-        &i.State,
-        &i.CreationTime,
-        &i.LastUpdateTime,
-    )
-    return i, err
+	row := q.db.QueryRowContext(ctx, getTaskByID, id)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Value,
+		&i.State,
+		&i.CreationTime,
+		&i.LastUpdateTime,
+	)
+	return i, err
 }
 
 const getTaskByIDUpdateState = `-- name: GetTaskByIDUpdateState :one
 WITH modified AS (
-    UPDATE tasks
-    SET state = $2
-    WHERE id = $1
-    RETURNING id, type, value, state, creation_time, last_update_time
+	UPDATE tasks
+	SET state = $2
+	WHERE id = $1
+	RETURNING id, type, value, state, creation_time, last_update_time
 )
 SELECT id, type, value, state, creation_time, last_update_time FROM modified
 `
 
 type GetTaskByIDUpdateStateParams struct {
-    ID    int32
-    State TaskState
+	ID    int32
+	State TaskState
 }
 
 type GetTaskByIDUpdateStateRow struct {
-    ID             int32
-    Type           int32
-    Value          int32
-    State          TaskState
-    CreationTime   float64
-    LastUpdateTime float64
+	ID             int32
+	Type           int32
+	Value          int32
+	State          TaskState
+	CreationTime   float64
+	LastUpdateTime float64
 }
 
 func (q *Queries) GetTaskByIDUpdateState(ctx context.Context, arg GetTaskByIDUpdateStateParams) (GetTaskByIDUpdateStateRow, error) {
-    row := q.db.QueryRowContext(ctx, getTaskByIDUpdateState, arg.ID, arg.State)
-    var i GetTaskByIDUpdateStateRow
-    err := row.Scan(
-        &i.ID,
-        &i.Type,
-        &i.Value,
-        &i.State,
-        &i.CreationTime,
-        &i.LastUpdateTime,
-    )
-    return i, err
+	row := q.db.QueryRowContext(ctx, getTaskByIDUpdateState, arg.ID, arg.State)
+	var i GetTaskByIDUpdateStateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Value,
+		&i.State,
+		&i.CreationTime,
+		&i.LastUpdateTime,
+	)
+	return i, err
 }
 
 const updateTaskToState = `-- name: UpdateTaskToState :exec
@@ -109,11 +109,11 @@ WHERE id = $1
 `
 
 type UpdateTaskToStateParams struct {
-    ID    int32
-    State TaskState
+	ID    int32
+	State TaskState
 }
 
 func (q *Queries) UpdateTaskToState(ctx context.Context, arg UpdateTaskToStateParams) error {
-    _, err := q.db.ExecContext(ctx, updateTaskToState, arg.ID, arg.State)
-    return err
+	_, err := q.db.ExecContext(ctx, updateTaskToState, arg.ID, arg.State)
+	return err
 }

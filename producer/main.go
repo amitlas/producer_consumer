@@ -93,33 +93,33 @@ func createTaskAndGetBacklog(queries *db.Queries, taskParams *db.CreateTaskAndGe
 
 func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
     retries := 5
-    //timeout := 1 * time.Second
+    timeout := 1 * time.Second
 
     for attempt := 1; attempt <= retries; attempt++ {
         // Create a channel to signal when the send operation is done
-        //done := make(chan error, 1)
+        done := make(chan error, 1)
 
-        //	go func() {
-        //		_, err := producer.SendBytes(msgBytes, 0)
-        //		done <- err
-        //	}()
+        go func() {
+            _, err := producer.SendBytes(msgBytes, 0)
+            done <- err
+        }()
 
-        //	select {
-        //	case err := <-done:
-        //		if err == nil {
-        //			return nil // Success
-        //		}
-        //		fmt.Printf("Attempt %d/%d failed: %s\n", attempt, retries, err)
-        //	case <-time.After(timeout):
-        //		fmt.Printf("Attempt %d/%d timed out\n", attempt, retries)
-        //	}
-        _, err := producer.SendBytes(msgBytes, 0)
-        if (nil != err) {
-            log.Errorf("Attempt %d/%d failed: %s\n", attempt, retries, err)
-            continue
-        } else {
-            return nil
+        select {
+        case err := <-done:
+            if err == nil {
+                return nil // Success
+            }
+            fmt.Printf("Attempt %d/%d failed: %s\n", attempt, retries, err)
+        case <-time.After(timeout):
+            fmt.Printf("Attempt %d/%d timed out\n", attempt, retries)
         }
+        //_, err := producer.SendBytes(msgBytes, 0)
+        //if (nil != err) {
+        //    log.Errorf("Attempt %d/%d failed: %s\n", attempt, retries, err)
+        //    continue
+        //} else {
+        //    return nil
+        //}
     }
 
     return fmt.Errorf("failed to send message after %d attempts", retries)
@@ -127,11 +127,17 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
 
 
 func main() {
+
     utils.HandleVersionFlag(&version)
 
     config, err := utils.LoadConfig[Config]("config.json", validateConfig)
     if (nil != err) {
         log.Fatalf("Failed loading config: %s", err)
+    }
+
+    err = utils.SetLoggingLevel(config.Logging.Level)
+    if (nil != err) {
+        log.Fatalf("Failed to set logging: %s", err)
     }
 
     dbConn, err := utils.ConnectToDB(&config.DBConnConfig)
@@ -158,7 +164,7 @@ func main() {
     defer ticker.Stop()
     errCnt := 0
 
-    log.Info("++++Starting ticker")
+    log.Debug("Starting ticker")
     for range ticker.C {
         taskParams := &db.CreateTaskAndGetBacklogParams{
             Type:		int32(rand.Intn(taskTypeRange)),
@@ -167,7 +173,7 @@ func main() {
             CreationTime:	float64(time.Now().UTC().Unix()),
         }
 
-        log.Info("++++creating task and writing to db")
+        log.Debug("creating task and writing to db")
         taskID, backlogCount, err := createTaskAndGetBacklog(queries, taskParams)
         if (nil != err) {
             errCnt += 1
@@ -179,13 +185,13 @@ func main() {
         }
         log.Infof("task %d created", taskID)
         log.Debugf("current backlog: %d", backlogCount)
-        log.Infof("++++current backlog: %d", backlogCount)
+        log.Debugf("current backlog: %d", backlogCount)
 
         msg := &utils.TaskMsg {
             ID: taskID,
         }
 
-        log.Infof("++++serializing task %d to zmq", taskID)
+        log.Debugf("serializing task %d to zmq", taskID)
         msgBytes, err := utils.SerializeTaskMsg(msg)
         if (nil != err) {
             errCnt += 1
@@ -195,7 +201,7 @@ func main() {
             }
             continue
         }
-        log.Infof("++++sending task %d to zmq", taskID)
+        log.Debugf("sending task %d to zmq", taskID)
 
         err = sendWithTimeout(producer, msgBytes)
         if (nil != err) {
@@ -206,11 +212,8 @@ func main() {
             }
             continue
         }
-        log.Infof("++++sending task %d sent to zmq", taskID)
 
         log.Debugf("Task %d has been created and sent, current backlog: %d", taskID, backlogCount)
-
-        log.Infof("+++++++++Task %d has been created and sent, current backlog: %d", taskID, backlogCount)
         if (backlogCount >= config.MaxBacklog) {
             log.Infof("Backlog reached its limit[%d], producer is closing", config.MaxBacklog)
             break

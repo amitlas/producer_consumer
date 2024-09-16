@@ -9,11 +9,11 @@ type Config struct {
     RateLimit		int					`json:"rate_limit"`
     ZMQHostName     string              `json:"zmq_host_name"`
     DBConnConfig		utils.DBConfig	`json:"db_conn_config"`
-    /*
     Logging struct {
-        LoggingLevel	string			`json:"logging_level"`
-        LoggingType		string			`json:"logging_type"`
+        Level	string			`json:"level"`
+        Type		string			`json:"type"`
     } `json:"logging"`
+    /*
     Monitoring struct {
         PrometheusPort		int `json:"prometheus_port"`
         PrometheusEndPoint	string `json:"prometheus_end_point"`

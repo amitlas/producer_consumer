@@ -23,6 +23,11 @@ var commMethodMap = map[string]zmq.Type{
     "pull": zmq.PULL,
 }
 
+var logVerMap = map[string]log.Level{
+    "debug": log.DebugLevel,
+    "info": log.InfoLevel,
+    "error": log.ErrorLevel,
+}
 
 func HandleVersionFlag(version *string) {
     versionFlag := flag.Bool("v", false, "Print version and exit")
@@ -56,6 +61,17 @@ func LoadConfig[T any](configFileName string, validateFunc func(*T) error) (*T, 
 
     log.Printf("Loaded configuration: %+v\n", config)
     return &config, nil
+}
+
+func SetLoggingLevel(lvl string) error {
+    level, ok := logVerMap[strings.ToLower(lvl)]
+    if (!ok) {
+        return fmt.Errorf("invalid log level[%s] requeted", lvl)
+    }
+
+    log.SetFormatter(&log.TextFormatter{})
+    log.SetLevel(level)
+    return nil
 }
 
 func ConnectToMQ(comm string, serverName *string) (*zmq.Socket, error) {

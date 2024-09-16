@@ -54,7 +54,6 @@ func consumeFromZMQ(socket *zmq.Socket, limiter *rate.Limiter) {
         }
 
         log.Debug("recied msg from zeroMQ")
-        log.Info("++++recied msg from zeroMQ")
         taskReadingQueue <- msg
     }
 }
@@ -78,8 +77,6 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
         }
 
         log.Debugf("Received Task ID: %d", taskMsg.ID)
-        log.Infof("++++Received Task ID: %d", taskMsg.ID)
-
         ctx := context.Background()
         task, err := queries.GetTaskByIDUpdateState(ctx, db.GetTaskByIDUpdateStateParams{
             ID:			int32(taskMsg.ID),
@@ -91,9 +88,6 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
         }
 
         log.Debugf("Fetched Task from DB: %+v", task)
-        log.Infof("++++Fetched Task from DB: %+v", task)
-
-
         // Pass the task to the next stage
         taskProcessingQueue <- convertToProcessingQueueChan(&task)
     }
@@ -160,6 +154,11 @@ func main() {
     config, err := utils.LoadConfig[Config]("config.json", validateConfig)
     if (nil != err) {
         log.Fatalf("Failed loading config: %s", err)
+    }
+
+    err = utils.SetLoggingLevel(config.Logging.Level)
+    if (nil != err) {
+        log.Fatalf("Failed to set logging: %s", err)
     }
 
     dbConn, err := utils.ConnectToDB(&config.DBConnConfig)

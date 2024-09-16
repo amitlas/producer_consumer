@@ -9,8 +9,8 @@ type Config struct {
     MsgProdRate		int		`json:"msg_prod_rate"`
     DBConnConfig		utils.DBConfig	`json:"db_conn_config"`
     Logging struct {
-        LoggingLevel	string			`json:"logging_level"`
-        LoggingType		string			`json:"logging_type"`
+        Level	string			`json:"level"`
+        Type		string			`json:"type"`
     } `json:"logging"`
     /*
     Monitoring struct {
