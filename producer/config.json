@@ -13,7 +13,7 @@
   },
   "logging": {
       "level": "info",
-      "output": "file"
+      "output": "console"
   }
 }
 

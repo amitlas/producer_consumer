@@ -10,5 +10,5 @@ type DBConfig struct {
 
 
 type TaskMsg struct {
-    ID	int	`json:"id"`
+    ID  int     `json:"id"`
 }

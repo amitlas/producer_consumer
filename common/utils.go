@@ -17,17 +17,28 @@ import (
 const zeroMQPort = 5555
 const logRelativePath = "LOG_RELATIVE_PATH"
 const baseAppPath = "BASE_APP_PATH"
+const defaultAppPath = "/app"
+const defaultLogRelativePath = "log"
 
-func getEnvVar(varName string) (string, error) {
-    val := os.Getenv(varName)
-    if ("" == val) {
-        return "", fmt.Errorf("%s environment variable not set or empty", varName)
+// get environment variable value
+//
+// Params:
+// - key: env var name
+// - defaultValue: default value to use if key not cound
+//
+// Returns:
+// - env var value
+func getEnvVar(key, defaultValue string) string {
+    value, exists := os.LookupEnv(key)
+    if !exists {
+        return defaultValue
     }
-    return val, nil
+    return value
 }
 
 
 var appName string
+
 /*
  *decided not to go with embed here, to allow dynmic load of the file from container, for easier config update
 //go:embed config.json
@@ -44,6 +55,10 @@ var logVerMap = map[string]log.Level{
     "error": log.ErrorLevel,
 }
 
+// Print app version and close the app when -v flag is received
+//
+// Params:
+// - verison: app version string
 func HandleVersionFlag(version *string) {
     versionFlag := flag.Bool("v", false, "Print version and exit")
     flag.Parse()
@@ -54,6 +69,10 @@ func HandleVersionFlag(version *string) {
     }
 }
 
+// Set app logging level
+//
+// Params:
+// -lvl - request level(supported: debug/info/error)
 func SetLoggingLevel(lvl string) error {
     level, ok := logVerMap[strings.ToLower(lvl)]
     if (!ok) {
@@ -65,11 +84,16 @@ func SetLoggingLevel(lvl string) error {
     return nil
 }
 
+// Load app config according to config struct
+//
+// Params:
+// -fileName - app file name in appPath
+// -validateFunc - config validation functino callback(can be nil)
+//
+// Return:
+// - config struct
 func LoadConfig[T any](fileName string, validateFunc func(*T) error) (*T, error) {
-    appPath, err := getEnvVar(baseAppPath)
-    if (nil != err) {
-        return nil, err
-    }
+    appPath := getEnvVar(baseAppPath, defaultAppPath)
 
     configFilePath := filepath.Join(appPath, fileName)
     log.Printf("Loading config from file: %s", configFilePath)
@@ -105,9 +129,9 @@ func LoadConfig[T any](fileName string, validateFunc func(*T) error) (*T, error)
     return &config, nil
 }
 
-
 type loggerFuncCB func() (func(), error)
 
+// Set app logging to console
 func setLoggingConsole() (func(), error) {
     log.SetOutput(os.Stdout)
     log.SetFormatter(&log.TextFormatter{
@@ -117,15 +141,13 @@ func setLoggingConsole() (func(), error) {
     return nil, nil
 }
 
+// Set app logging to file
+//
+// Return:
+// cleanup cb to call on app termination
 func setLoggingFile() (func(), error) {
-    appPath, err := getEnvVar(baseAppPath)
-    if (nil != err) {
-        return nil, err
-    }
-    logsRelPath, err := getEnvVar(logRelativePath)
-    if (nil != err) {
-        return nil, err
-    }
+    appPath := getEnvVar(baseAppPath, defaultAppPath)
+    logsRelPath := getEnvVar(logRelativePath, defaultLogRelativePath)
 
     path := filepath.Join(appPath, logsRelPath, appName)
     logFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -152,6 +174,13 @@ var logOutputMap = map[string]loggerFuncCB{
     "file":    setLoggingFile,
 }
 
+// Set logging output
+//
+// Params:
+// output - logs output method (supported: file/console)
+//
+// Return:
+// cleanup cb to call on app termination
 func SetLoggingOutput(output string) (func(), error) {
     cb, ok := logOutputMap[output]
     if !ok {
@@ -170,10 +199,20 @@ func SetAppName(name string) {
     appName = name
 }
 
-func ConnectToMQ(comm string, serverName *string) (*zmq.Socket, error) {
-    commType, ok := commMethodMap[strings.ToLower(comm)]
+// Connect to ZMQ as producer / consumer
+//
+// Params:
+// - commMethos - ZMQ comminucation method (supported: push/pull)
+// - hostName - for client - ZMQ host name to connect to
+//
+// Return:
+// - socket to ZMQ
+func ConnectToMQ(commMethod string, hostName *string) (*zmq.Socket, error) {
+    log.Info("Connecting to ZMQueue")
+
+    commType, ok := commMethodMap[strings.ToLower(commMethod)]
     if (!ok) {
-        return nil, fmt.Errorf("failed to create get ZeroMQ communication type[%s]", comm)
+        return nil, fmt.Errorf("failed to create get ZeroMQ communication type[%s]", commMethod)
     }
 
     socket, err := zmq.NewSocket(commType)
@@ -181,8 +220,8 @@ func ConnectToMQ(comm string, serverName *string) (*zmq.Socket, error) {
         return nil, fmt.Errorf("failed to create ZeroMQ socket: %s", err)
     }
 
-    if (nil != serverName) {
-        socketAddr := fmt.Sprintf("tcp://%s:%d", *serverName, zeroMQPort)
+    if (nil != hostName) {
+        socketAddr := fmt.Sprintf("tcp://%s:%d", *hostName, zeroMQPort)
         err = socket.Connect(socketAddr)
     } else {
         socketAddr := fmt.Sprintf("tcp://*:%d", zeroMQPort)
@@ -195,7 +234,7 @@ func ConnectToMQ(comm string, serverName *string) (*zmq.Socket, error) {
     log.Infof("ZMQ is running on port %d", zeroMQPort)
     return socket, nil
 }
-
+// Serialize msg to bytearray
 func SerializeTaskMsg(msg *TaskMsg) ([]byte, error) {
     var buf bytes.Buffer
     enc := json.NewEncoder(&buf)
@@ -206,6 +245,7 @@ func SerializeTaskMsg(msg *TaskMsg) ([]byte, error) {
     return buf.Bytes(), nil
 }
 
+// Deserialize bytearray to msg
 func DeserializeTaskMsg(data []byte) (*TaskMsg, error) {
     var msg TaskMsg
     err := json.Unmarshal(data, &msg)

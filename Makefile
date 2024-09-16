@@ -1,4 +1,4 @@
-gOCKER_COMPOSE_FILE=docker-compose.yml
+DOCKER_COMPOSE_FILE=docker-compose.yml
 SCRIPT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 GO_PRODUCER_DIR=$(SCRIPT_DIR)/producer
 GO_CONSUMER_DIR=$(SCRIPT_DIR)/consumer
@@ -38,12 +38,12 @@ mod_tidy_consumer:
 producer: mod_tidy_producer sqlc
 	@echo "Building producer..."
 	@VERSION=$(shell cat $(GO_PRODUCER_DIR)/VERSION) && \
-	docker-compose build producer --build-arg VERSION=$$VERSION || { echo "Producer build failed! Exiting..."; exit 1; }
+		docker-compose build producer --build-arg VERSION=$$VERSION || { echo "Producer build failed! Exiting..."; exit 1; }
 
 consumer: mod_tidy_consumer sqlc
 	@echo "Building consumer..."
 	@VERSION=$(shell cat $(GO_PRODUCER_DIR)/VERSION) && \
-	docker-compose build consumer --build-arg VERSION=$$VERSION || { echo "Consumer build failed! Exiting..."; exit 1; }
+		docker-compose build consumer --build-arg VERSION=$$VERSION || { echo "Consumer build failed! Exiting..."; exit 1; }
 
 clean:
 	@echo "Cleaning up logs..."

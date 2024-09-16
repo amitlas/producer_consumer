@@ -8,19 +8,10 @@ RUN apt-get update && apt-get install -y \
     pkg-config
 
 # Copy Go module files
-# Copy Go module files
 COPY .. /app
-####is needed?
-WORKDIR /app
-RUN go mod download
-########
-
-
-COPY ./consumer /app/consumer
-COPY ./common /app/common
-COPY ./consumer/config.json /app/common/config.json
-COPY ./db /app/db
 COPY ./migrations /app/consumer/migrations
+# needed for embed
+#COPY ./consumer/config.json /app/common/config.json
 
 # Set the working directory to the consumer directory
 WORKDIR /app/consumer
@@ -39,6 +30,7 @@ RUN apt-get update && apt-get install -y \
 # Set the working directory
 WORKDIR /app
 
+# Copy binary and config to image
 COPY --from=builder /app/consumer/consumer ./consumer
 COPY --from=builder /app/consumer/config.json ./config.json
 

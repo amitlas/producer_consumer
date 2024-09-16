@@ -3,7 +3,6 @@ package main
 import (
     "fmt"
     "embed"
-    "os"
     "time"
     "math/rand"
     "context"
@@ -21,13 +20,6 @@ import (
 
 )
 
-func getEnv(key, defaultValue string) string {
-    value, exists := os.LookupEnv(key)
-    if !exists {
-        return defaultValue
-    }
-    return value
-}
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
@@ -38,7 +30,10 @@ const taskValueRange = 100
 const errorLimit = 20
 const migrationsPath = "migrations"
 
-
+// validate config CB func to be called after load
+//
+// Params:
+// - config - config struct to verify
 func validateConfig(config *Config) error {
     if config.MsgProdRate < 0 {
         return fmt.Errorf("invalid config: negative MsgProdRate")
@@ -47,6 +42,10 @@ func validateConfig(config *Config) error {
     return nil
 }
 
+// run DB migrations up after starting the vm
+//
+// Params:
+//  - DB handler
 func runDBMigrations(db *sql.DB) error {
     const DBName = "postgress"
     const srcName = "iofs"
@@ -77,7 +76,17 @@ func runDBMigrations(db *sql.DB) error {
 }
 
 
-// used backlog count as a 'soft limit', didnt use transactions to reduce consumers clogging
+// create task in DB and return current pending tasks count
+// not sending as transaction, but rather query with read and update, basically used backlog count as
+// a 'soft limit', didnt use transactions to reduce consumers clogging
+//
+// params:
+// - queries: db sql queries
+// - taskParams: taske params to set
+//
+// return:
+// - new task id
+// - current pending tasks backlog count
 func createTaskAndGetBacklog(queries *db.Queries, taskParams *db.CreateTaskAndGetBacklogParams) (int, int, error) {
     result, err := queries.CreateTaskAndGetBacklog(
         context.Background(),
@@ -91,6 +100,12 @@ func createTaskAndGetBacklog(queries *db.Queries, taskParams *db.CreateTaskAndGe
     return int(result.TaskID), int(result.BacklogCount), nil
 }
 
+// send byte array on socket, allow 5 retries with 1sec sleep if failed before
+// dropping this data
+//
+// params:
+// - producer - producer socket to send on
+// - msgBytes - bytearray of data
 func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
     retries := 5
     timeout := 1 * time.Second
@@ -104,22 +119,17 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
             done <- err
         }()
 
+        // wait for either success/failure/timeout
         select {
-        case err := <-done:
-            if err == nil {
-                return nil // Success
-            }
-            fmt.Printf("Attempt %d/%d failed: %s\n", attempt, retries, err)
-        case <-time.After(timeout):
-            fmt.Printf("Attempt %d/%d timed out\n", attempt, retries)
+            case err := <-done:
+                if err == nil {
+                    return nil // Success
+                }
+                fmt.Printf("Attempt %d/%d failed: %s\n", attempt, retries, err)
+
+            case <-time.After(timeout):
+                fmt.Printf("Attempt %d/%d timed out\n", attempt, retries)
         }
-        //_, err := producer.SendBytes(msgBytes, 0)
-        //if (nil != err) {
-        //    log.Errorf("Attempt %d/%d failed: %s\n", attempt, retries, err)
-        //    continue
-        //} else {
-        //    return nil
-        //}
     }
 
     return fmt.Errorf("failed to send message after %d attempts", retries)
@@ -154,7 +164,6 @@ func main() {
     }
     defer dbConn.Close()
 
-    log.Info("Connecting to Producer queue")
     producer, err := utils.ConnectToMQ(config.ZeroMQComm, nil)
     if (nil != err) {
         log.Fatalf("Failed connection to producer: %s", err)
@@ -172,13 +181,13 @@ func main() {
     defer ticker.Stop()
     errCnt := 0
 
-    log.Debug("Starting ticker")
+    log.Debug("Starting main loop, limitng to %d messages per sec", config.MsgProdRate)
     for range ticker.C {
         taskParams := &db.CreateTaskAndGetBacklogParams{
-            Type:		int32(rand.Intn(taskTypeRange)),
-            Value:		int32(rand.Intn(taskValueRange)),
-            State:		db.TaskStatePending,
-            CreationTime: float64(time.Now().UTC().Unix()),
+            Type:           int32(rand.Intn(taskTypeRange)),
+            Value:          int32(rand.Intn(taskValueRange)),
+            State:          db.TaskStatePending,
+            CreationTime:   float64(time.Now().UTC().Unix()),
         }
 
         log.Debug("creating task and writing to db")
@@ -191,8 +200,8 @@ func main() {
             }
             continue
         }
+
         log.Infof("task %d created", taskID)
-        log.Debugf("current backlog: %d", backlogCount)
         log.Debugf("current backlog: %d", backlogCount)
 
         msg := &utils.TaskMsg {
@@ -209,8 +218,8 @@ func main() {
             }
             continue
         }
-        log.Debugf("sending task %d to zmq", taskID)
 
+        log.Debugf("sending task %d to zmq", taskID)
         err = sendWithTimeout(producer, msgBytes)
         if (nil != err) {
             errCnt += 1

@@ -5,10 +5,10 @@ import (
 )
 
 type Config struct {
-    ZeroMQComm		string				`json:"zero_mq_protocol"`
-    RateLimit		int					`json:"rate_limit"`
+    ZeroMQComm      string              `json:"zero_mq_protocol"`
+    RateLimit       int                 `json:"rate_limit"`
     ZMQHostName     string              `json:"zmq_host_name"`
-    DBConnConfig		utils.DBConfig	`json:"db_conn_config"`
+    DBConnConfig    utils.DBConfig      `json:"db_conn_config"`
     Logging struct {
         Level       string          `json:"level"`
         Type        string          `json:"type"`
@@ -16,9 +16,9 @@ type Config struct {
     } `json:"logging"`
     /*
     Monitoring struct {
-        PrometheusPort		int `json:"prometheus_port"`
-        PrometheusEndPoint	string `json:"prometheus_end_point"`
-        ProfilingPort	string				`json:"profiling_port"`
+        PrometheusPort      int     `json:"prometheus_port"`
+        PrometheusEndPoint  string  `json:"prometheus_end_point"`
+        ProfilingPort       string  `json:"profiling_port"`
     } `json:"monitorig"`
     */
 }

@@ -29,7 +29,7 @@ var taskReadingQueue = make(chan []byte, taskReadingMsgBuffSize)
 var taskProcessingQueue = make(chan *db.Task, taskProcessingMsgBuffSize)
 var taskFinishingQueue = make(chan int32, taskFinishingMsgBuffSize)
 
-
+// configuration validator callback
 func validateConfig(config *Config) error {
     if config.RateLimit <= 0 {
         return fmt.Errorf("invalid config: invalid rate limit: [%d]", config.RateLimit)
@@ -38,7 +38,8 @@ func validateConfig(config *Config) error {
     return nil
 }
 
-
+// read data from ZMQ, pass it to worker for msg parsing(deserializing) and release consumer
+// queue to keep pulling data. pass to worker via taskReadingQueue
 func consumeFromZMQ(socket *zmq.Socket, limiter *rate.Limiter) {
     for {
         limiter.Wait(context.Background())
@@ -54,6 +55,7 @@ func consumeFromZMQ(socket *zmq.Socket, limiter *rate.Limiter) {
     }
 }
 
+// convert DB format to local task data format
 func convertToProcessingQueueChan(dbTask *db.GetTaskByIDUpdateStateRow) *db.Task {
     return &db.Task{
         ID:        dbTask.ID,
@@ -62,6 +64,8 @@ func convertToProcessingQueueChan(dbTask *db.GetTaskByIDUpdateStateRow) *db.Task
     }
 }
 
+// deserialize msg form zmq bytearray(via taskReadingQueue) to msg id and get data from db
+// after fetching task data pass it to taskProcessingQueue for task handling
 func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskProcessingQueue chan<- *db.Task, wg *sync.WaitGroup) {
     defer wg.Done()
 
@@ -75,8 +79,8 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
         log.Debugf("Received Task ID: %d", taskMsg.ID)
         ctx := context.Background()
         task, err := queries.GetTaskByIDUpdateState(ctx, db.GetTaskByIDUpdateStateParams{
-            ID:			int32(taskMsg.ID),
-            State:		db.TaskStateRunning,
+            ID:         int32(taskMsg.ID),
+            State:      db.TaskStateRunning,
         })
         if (nil != err) {
             log.Errorf("Error fetching task %d from DB: %v", taskMsg.ID, err)
@@ -89,6 +93,10 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
     }
 }
 
+
+// start the task DB reading workers queue
+// this is responsible to fetch task data from db, according to task id received from taskReadingQueue
+// and pass task data to taskProcessingQueue
 func startDBreaders(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
@@ -96,24 +104,28 @@ func startDBreaders(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
     }
 }
 
+// task finisher worker logic
+// update the db task state to completed
 func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan int32, taskProcessingQueue <-chan *db.Task, wg *sync.WaitGroup) {
     defer wg.Done()
 
     for task_id := range taskFinishingQueue {
         ctx := context.Background()
         err := queries.UpdateTaskToState(ctx, db.UpdateTaskToStateParams{
-            ID:			int32(task_id),
-            State:		db.TaskStateComplete,
+            ID:         int32(task_id),
+            State:      db.TaskStateComplete,
         })
         if (nil != err) {
             log.Errorf("Failed updating task %d to finished: %v", task_id, err)
             continue
         }
 
-        log.Debugf("Updated DB task %d to finished", task_id)
+        log.Infof("Updated DB task %d to finished", task_id)
     }
 }
 
+// start the task finish workers queue
+// this is responsible to update db once task is done
 func startTaskFinishWorkers(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
@@ -121,21 +133,25 @@ func startTaskFinishWorkers(queries *db.Queries, numWorkers int, wg *sync.WaitGr
     }
 }
 
+// run task
 func run_task(task *db.Task, taskFinishingQueue chan<- int32) {
     log.Debugf("started working on task %d", task.ID)
     time.Sleep(time.Duration(task.Value) * time.Millisecond)
     log.Debugf("finished working on task %d", task.ID)
-
-    taskFinishingQueue <- task.ID
 }
 
+// read task to process from taskProcessingQueue and handle it, when task is done, pass its id to taskFinishingQueue
 func TaskHandleAction(taskProcessingQueue <-chan *db.Task, taskFinishingQueue chan<- int32, wg *sync.WaitGroup) {
     defer wg.Done()
     for task := range taskProcessingQueue {
+        log.Debugf("handler queue working on task %d", task.ID)
         run_task(task, taskFinishingQueue)
+        taskFinishingQueue <- task.ID
     }
 }
 
+// start the task handlers workers pool
+// this is responsible to run the task
 func startTaskHandlingWorkers(numWorkers int, wg *sync.WaitGroup) {
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
@@ -182,11 +198,15 @@ func main() {
     queries := db.New(dbConn)
 
     var wg sync.WaitGroup
+    // start worker threads
     startDBreaders(queries, numDBReaders, &wg)
     startTaskHandlingWorkers(numActionWorkers, &wg)
     startTaskFinishWorkers(queries, numTaskFinishers, &wg)
 
+    // set rate limiter for msg handling
     limiter := rate.NewLimiter(rate.Limit(config.RateLimit), 1/*sec*/)
+
+    // handle requests
     go consumeFromZMQ(consumer, limiter)
 
     wg.Wait()

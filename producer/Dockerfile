@@ -7,24 +7,12 @@ RUN apt-get update && apt-get install -y \
     gcc \
     pkg-config
 
-WORKDIR /app
 
 # Copy Go module files
-#COPY producer/go.mod producer/go.sum ./
-#RUN go mod download
 COPY .. /app
-####is needed?
-WORKDIR /app
-COPY go.mod go.sum /app/
-RUN go mod download
-########
-
-
-COPY ./producer /app/producer
-COPY ./common /app/common
-COPY ./producer/config.json /app/common/config.json
-COPY ./db /app/db
 COPY ./migrations /app/producer/migrations
+# needed for embed
+#COPY ./producer/config.json /app/common/config.json
 
 # Set the working directory to the producer directory
 WORKDIR /app/producer
