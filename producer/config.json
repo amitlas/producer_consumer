@@ -14,6 +14,10 @@
   "logging": {
       "level": "info",
       "output": "console"
+  },
+  "monitoring": {
+      "prometheus_port": 9090,
+      "prometheus_end_point": "/metrics"
   }
 }
 

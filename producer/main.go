@@ -7,28 +7,60 @@ import (
     "math/rand"
     "context"
     "database/sql"
+    "net/http"
 
     "prod_cons/common"
     "prod_cons/db"
 
-    log "github.com/sirupsen/logrus"
-    _ "github.com/lib/pq" // PostgreSQL driver
-    zmq "github.com/pebbe/zmq4"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/golang-migrate/migrate/v4"
     "github.com/golang-migrate/migrate/v4/database/postgres"
     "github.com/golang-migrate/migrate/v4/source/iofs"
 
+    log "github.com/sirupsen/logrus"
+    _ "github.com/lib/pq" // PostgreSQL driver
+    zmq "github.com/pebbe/zmq4"
+
 )
-
-
-//go:embed migrations/*.sql
-var migrationFiles embed.FS
 
 var version = "development"
 const taskTypeRange = 10
 const taskValueRange = 100
 const errorLimit = 20
 const migrationsPath = "migrations"
+
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+var (
+    tasksCounter = prometheus.NewCounter(
+        prometheus.CounterOpts{
+            Name: "tasks_created_total",
+            Help: "Total number of tasks created by the producer.",
+        },
+    )
+)
+
+var backlogLimitReached = make (chan struct{})
+
+// Prometheus metrics handler
+func metricsHandler(w http.ResponseWriter, r *http.Request) {
+    http.ServeFile(w, r, "/metrics")
+}
+
+// Register and run prometheus(blocking)
+func runPrometheusServer(config *utils.MontioringConfig) {
+    log.Debug("Register prometheus tasksCounter counter")
+    prometheus.MustRegister(tasksCounter)
+
+    log.Info("Starting prometheus server")
+    http.Handle(config.PrometheusEndPoint, promhttp.Handler())
+    err := http.ListenAndServe(fmt.Sprintf(":%d", config.PrometheusPort), nil)
+    if (nil != err) {
+        log.Fatalf("Failed to start Prometheus server: %v", err)
+    }
+}
 
 // validate config CB func to be called after load
 //
@@ -97,6 +129,7 @@ func createTaskAndGetBacklog(queries *db.Queries, taskParams *db.CreateTaskAndGe
         return 0, 0, err
     }
 
+    tasksCounter.Inc()
     return int(result.TaskID), int(result.BacklogCount), nil
 }
 
@@ -135,53 +168,15 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
     return fmt.Errorf("failed to send message after %d attempts", retries)
 }
 
-
-func main() {
-    utils.HandleVersionFlag(&version)
-    utils.SetAppName("producer")
-
-    config, err := utils.LoadConfig[Config]("config.json", validateConfig)
-    if (nil != err) {
-        log.Fatalf("Failed loading config: %s", err)
-    }
-
-    err = utils.SetLoggingLevel(config.Logging.Level)
-    if (nil != err) {
-        log.Fatalf("Failed to set logging: %s", err)
-    }
-
-    cleanupCB, err := utils.SetLoggingOutput(config.Logging.Output)
-    if (nil != err) {
-        log.Fatalf("Failed to set logging: %s", err)
-    }
-    if (nil != cleanupCB) {
-        defer cleanupCB()
-    }
-
-    dbConn, err := utils.ConnectToDB(&config.DBConnConfig)
-    if (nil != err) {
-        log.Fatalf("Failed connecting to DB: %s", err)
-    }
-    defer dbConn.Close()
-
-    producer, err := utils.ConnectToMQ(config.ZeroMQComm, nil)
-    if (nil != err) {
-        log.Fatalf("Failed connection to producer: %s", err)
-    }
-    defer producer.Close()
-
-    queries := db.New(dbConn)
-    err = runDBMigrations(dbConn)
-    if (nil != err) {
-        log.Fatalf("Failed running DB migrations: %s", err)
-    }
-
-    ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
-
-    defer ticker.Stop()
-    errCnt := 0
+// main task creation logic
+func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queries) {
 
     log.Debug("Starting main loop, limitng to %d messages per sec", config.MsgProdRate)
+
+    ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
+    defer ticker.Stop()
+
+    errCnt := 0
     for range ticker.C {
         taskParams := &db.CreateTaskAndGetBacklogParams{
             Type:           int32(rand.Intn(taskTypeRange)),
@@ -236,6 +231,56 @@ func main() {
             break
         }
     }
+}
+
+func main() {
+    utils.HandleVersionFlag(&version)
+    utils.SetAppName("producer")
+
+    config, err := utils.LoadConfig[Config]("config.json", validateConfig)
+    if (nil != err) {
+        log.Fatalf("Failed loading config: %s", err)
+    }
+
+    err = utils.SetLoggingLevel(config.Logging.Level)
+    if (nil != err) {
+        log.Fatalf("Failed to set logging: %s", err)
+    }
+
+    cleanupCB, err := utils.SetLoggingOutput(config.Logging.Output)
+    if (nil != err) {
+        log.Fatalf("Failed to set logging: %s", err)
+    }
+    if (nil != cleanupCB) {
+        defer cleanupCB()
+    }
+
+    dbConn, err := utils.ConnectToDB(&config.DBConnConfig)
+    if (nil != err) {
+        log.Fatalf("Failed connecting to DB: %s", err)
+    }
+    defer dbConn.Close()
+
+    producer, err := utils.ConnectToMQ(config.ZeroMQComm, nil)
+    if (nil != err) {
+        log.Fatalf("Failed connection to producer: %s", err)
+    }
+    defer producer.Close()
+
+    queries := db.New(dbConn)
+    err = runDBMigrations(dbConn)
+    if (nil != err) {
+        log.Fatalf("Failed running DB migrations: %s", err)
+    }
+
+    // goroutine to handle main loop logic
+    go runTaskCreationLoop(producer, config, queries)
+
+    // goroutine to handle prometheus server
+    go runPrometheusServer(&config.MonitoringConfig)
+
+    // keep app running till backlog limit reached
+    <-backlogLimitReached
 
     log.Info("Producer has finished")
 }

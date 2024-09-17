@@ -5,11 +5,14 @@ import (
     "time"
     "sync"
     "context"
+//    "net/http"
 
     "prod_cons/common"
     "prod_cons/db"
 
     "golang.org/x/time/rate"
+ //   "github.com/prometheus/client_golang/prometheus"
+  //  "github.com/prometheus/client_golang/prometheus/promhttp"
 
     zmq "github.com/pebbe/zmq4"
     log "github.com/sirupsen/logrus"
@@ -28,6 +31,26 @@ var version = "development"
 var taskReadingQueue = make(chan []byte, taskReadingMsgBuffSize)
 var taskProcessingQueue = make(chan *db.Task, taskProcessingMsgBuffSize)
 var taskFinishingQueue = make(chan int32, taskFinishingMsgBuffSize)
+
+
+
+//todo:
+//For each incoming task, have a final log which describes the tasks content and the calculated
+//total sum for that task’s type. - final log - task is done, content, whats clculated total sum? kept by consumer? use
+//mtx
+
+
+
+//prometheus consumer
+    //Track the number of tasks being processed and done in prometheus metrics
+    //Track the number of tasks per task type
+    //Track the total sum of the “value” field for each task type.
+
+
+
+
+
+
 
 // configuration validator callback
 func validateConfig(config *Config) error {
