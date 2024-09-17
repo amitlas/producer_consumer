@@ -5,14 +5,12 @@ import (
     "time"
     "sync"
     "context"
-//    "net/http"
 
     "prod_cons/common"
     "prod_cons/db"
 
     "golang.org/x/time/rate"
- //   "github.com/prometheus/client_golang/prometheus"
-  //  "github.com/prometheus/client_golang/prometheus/promhttp"
+    "github.com/prometheus/client_golang/prometheus"
 
     zmq "github.com/pebbe/zmq4"
     log "github.com/sirupsen/logrus"
@@ -30,7 +28,7 @@ var version = "development"
 
 var taskReadingQueue = make(chan []byte, taskReadingMsgBuffSize)
 var taskProcessingQueue = make(chan *db.Task, taskProcessingMsgBuffSize)
-var taskFinishingQueue = make(chan int32, taskFinishingMsgBuffSize)
+var taskFinishingQueue = make(chan *db.Task, taskFinishingMsgBuffSize)
 
 
 
@@ -41,16 +39,52 @@ var taskFinishingQueue = make(chan int32, taskFinishingMsgBuffSize)
 
 
 
-//prometheus consumer
-    //Track the number of tasks being processed and done in prometheus metrics
-    //Track the number of tasks per task type
-    //Track the total sum of the “value” field for each task type.
+var (
+    finishedTasksCounter = prometheus.NewCounter(
+        prometheus.CounterOpts{
+            Name: "finished_tasks_counter",
+            Help: "Total number of tasks finished by the consumer.",
+        },
+    )
+)
 
+var (
+    inProgressTasksCounter = prometheus.NewGauge(
+        prometheus.GaugeOpts{
+            Name: "in_progress_tasks_counter",
+            Help: "Total number of tasks in progress by the consumer.",
+        },
+    )
+)
 
+var (
+    runningTasksByTypeCounter = prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Name: "running_tasks_by_type_counter",
+            Help: "Total number of tasks created by the producer.",
+        },
+        []string{"type"},
+    )
+)
 
+var (
+    totalValueByType = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "total_value_by_type",
+            Help: "Total number of tasks created by the producer.",
+        },
+        []string{"type"},
+    )
+)
 
-
-
+// CB func to register prometheus data
+func registerPromethesDataCallback() {
+    log.Debug("Register prometheus tasksCounter counter")
+    prometheus.MustRegister(finishedTasksCounter)
+    prometheus.MustRegister(inProgressTasksCounter)
+    prometheus.MustRegister(runningTasksByTypeCounter)
+    prometheus.MustRegister(totalValueByType)
+}
 
 // configuration validator callback
 func validateConfig(config *Config) error {
@@ -129,21 +163,26 @@ func startDBreaders(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
 
 // task finisher worker logic
 // update the db task state to completed
-func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan int32, taskProcessingQueue <-chan *db.Task, wg *sync.WaitGroup) {
+func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan *db.Task, taskProcessingQueue <-chan *db.Task, wg *sync.WaitGroup) {
     defer wg.Done()
 
-    for task_id := range taskFinishingQueue {
+    for task := range taskFinishingQueue {
         ctx := context.Background()
         err := queries.UpdateTaskToState(ctx, db.UpdateTaskToStateParams{
-            ID:         int32(task_id),
+            ID:         int32(task.ID),
             State:      db.TaskStateComplete,
         })
         if (nil != err) {
-            log.Errorf("Failed updating task %d to finished: %v", task_id, err)
+            log.Errorf("Failed updating task %d to finished: %v", task.ID, err)
             continue
         }
 
-        log.Infof("Updated DB task %d to finished", task_id)
+        // atomic actions
+        finishedTasksCounter.Inc()
+        inProgressTasksCounter.Dec()
+        runningTasksByTypeCounter.WithLabelValues(fmt.Sprintf("%d", task.Type)).Dec()
+
+        log.Infof("Updated DB task %d to finished", task.ID)
     }
 }
 
@@ -157,19 +196,25 @@ func startTaskFinishWorkers(queries *db.Queries, numWorkers int, wg *sync.WaitGr
 }
 
 // run task
-func run_task(task *db.Task, taskFinishingQueue chan<- int32) {
+func run_task(task *db.Task, taskFinishingQueue chan<- *db.Task) {
     log.Debugf("started working on task %d", task.ID)
     time.Sleep(time.Duration(task.Value) * time.Millisecond)
     log.Debugf("finished working on task %d", task.ID)
 }
 
 // read task to process from taskProcessingQueue and handle it, when task is done, pass its id to taskFinishingQueue
-func TaskHandleAction(taskProcessingQueue <-chan *db.Task, taskFinishingQueue chan<- int32, wg *sync.WaitGroup) {
+func TaskHandleAction(taskProcessingQueue <-chan *db.Task, taskFinishingQueue chan<- *db.Task, wg *sync.WaitGroup) {
     defer wg.Done()
     for task := range taskProcessingQueue {
         log.Debugf("handler queue working on task %d", task.ID)
+
+        // atomic actions
+        totalValueByType.WithLabelValues(fmt.Sprintf("%d", task.Type)).Add(float64(task.Value))
+        inProgressTasksCounter.Inc()
+        runningTasksByTypeCounter.WithLabelValues(fmt.Sprintf("%d", task.Type)).Inc()
+
         run_task(task, taskFinishingQueue)
-        taskFinishingQueue <- task.ID
+        taskFinishingQueue <- task
     }
 }
 
@@ -231,6 +276,9 @@ func main() {
 
     // handle requests
     go consumeFromZMQ(consumer, limiter)
+
+    // goroutine to handle prometheus server
+    go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback)
 
     wg.Wait()
 }

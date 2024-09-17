@@ -6,9 +6,12 @@ import (
     "os"
     "bytes"
     "strings"
+    "net/http"
     "path/filepath"
 
     "encoding/json"
+
+    "github.com/prometheus/client_golang/prometheus/promhttp"
 
     zmq "github.com/pebbe/zmq4"
     log "github.com/sirupsen/logrus"
@@ -253,5 +256,21 @@ func DeserializeTaskMsg(data []byte) (*TaskMsg, error) {
         return &msg, err
     }
     return &msg, nil
+}
+
+// Register and run prometheus(blocking)
+//
+// Pamars:
+// - config - monitoring configurations
+// - registerCallbacks - callbacks func to register orinetheus data
+func RunPrometheusServer(config *MontioringConfig, registerCallbacks func()) {
+    registerCallbacks()
+
+    log.Info("Starting prometheus server")
+    http.Handle(config.PrometheusEndPoint, promhttp.Handler())
+    err := http.ListenAndServe(fmt.Sprintf(":%d", config.PrometheusPort), nil)
+    if (nil != err) {
+        log.Fatalf("Failed to start Prometheus server: %v", err)
+    }
 }
 

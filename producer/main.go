@@ -13,7 +13,6 @@ import (
     "prod_cons/db"
 
     "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/golang-migrate/migrate/v4"
     "github.com/golang-migrate/migrate/v4/database/postgres"
     "github.com/golang-migrate/migrate/v4/source/iofs"
@@ -48,18 +47,10 @@ var backlogLimitReached = make (chan struct{})
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
     http.ServeFile(w, r, "/metrics")
 }
-
-// Register and run prometheus(blocking)
-func runPrometheusServer(config *utils.MontioringConfig) {
+// CB func to register prometheus data
+func registerPromethesDataCallback() {
     log.Debug("Register prometheus tasksCounter counter")
     prometheus.MustRegister(tasksCounter)
-
-    log.Info("Starting prometheus server")
-    http.Handle(config.PrometheusEndPoint, promhttp.Handler())
-    err := http.ListenAndServe(fmt.Sprintf(":%d", config.PrometheusPort), nil)
-    if (nil != err) {
-        log.Fatalf("Failed to start Prometheus server: %v", err)
-    }
 }
 
 // validate config CB func to be called after load
@@ -277,7 +268,7 @@ func main() {
     go runTaskCreationLoop(producer, config, queries)
 
     // goroutine to handle prometheus server
-    go runPrometheusServer(&config.MonitoringConfig)
+    go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback)
 
     // keep app running till backlog limit reached
     <-backlogLimitReached
