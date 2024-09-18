@@ -9,7 +9,7 @@
     "port": 5432,
     "user": "postgres",
     "password": "securepassword",
-    "dbname": "mydb"
+    "dbname": "tasks_db"
   },
   "logging": {
       "level": "info",

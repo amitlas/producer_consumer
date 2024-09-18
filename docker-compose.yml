@@ -46,7 +46,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: securepassword
-      POSTGRES_DB: mydb
+      POSTGRES_DB: tasks_db
     networks:
       - db_net
     ports:

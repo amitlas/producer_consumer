@@ -173,7 +173,7 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
             Type:           int32(rand.Intn(taskTypeRange)),
             Value:          int32(rand.Intn(taskValueRange)),
             State:          db.TaskStatePending,
-            CreationTime:   float64(time.Now().UTC().Unix()),
+            CreationTime:   float64(time.Now().UTC().UnixMicro())/1e6, // get mirosec resolution
         }
 
         log.Debug("creating task and writing to db")

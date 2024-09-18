@@ -4,8 +4,6 @@ GO_PRODUCER_DIR=$(SCRIPT_DIR)/producer
 GO_CONSUMER_DIR=$(SCRIPT_DIR)/consumer
 DOCKER_COMPOSE_FILE=$(SCRIPT_DIR)/docker-compose.yml
 LOGS_PATH=$(SCRIPT_DIR)/logs/
-PEODUCER_PPROF_PORT=6060
-CONSUMER_PPROF_PORT=6061
 
 # Paths to the version files for producer and consumer
 PRODUCER_VERSION_FILE = producer/VERSION
@@ -22,7 +20,6 @@ CONSUMER_MINOR := $(shell echo $(CONSUMER_VERSION) | cut -d. -f2)
 # Docker container names
 PRODUCER_CONTAINER_NAME = prod-producer
 CONSUMER_CONTAINER_NAME = prod-consumer
-
 
 sqlc:
 	sqlc generate
@@ -92,9 +89,83 @@ release_consumer_minor: consumer
 	@NEW_MINOR=$$(($(CONSUMER_MINOR) + 1)) && echo "$(CONSUMER_MAJOR).$$NEW_MINOR.0" > $(CONSUMER_VERSION_FILE)
 	@$(MAKE) consumer
 
-run_producer_pprof:
-	go tool pprof http://localhost:$(PRODUCER_PPROF_PORT)/debug/pprof/profile?seconds=30
+# Pprof, flamegraph
+FLAMEGRAPH_DIR=~/FlameGraph
+DOWNLOAD_INTERVAL=30
+SAMPLING_INTERVAL=1
+# Producer-specific variables
+PRODUCER_PPROF_PORT ?= 6060
+PRODUCER_PROFILE_FILE ?= pprof_data/producer_profile.pb.gz
+PRODUCER_OUTPUT_FILE ?= pprof_data/producer_out.svg
+PRODUCER_PROFILE_URL ?= http://localhost:$(PRODUCER_PPROF_PORT)/debug/pprof/profile?seconds=$(DOWNLOAD_INTERVAL)
+CONTINUOUS_PRODUCER_PROFILE_URL ?= http://localhost:$(PRODUCER_PPROF_PORT)/debug/pprof/profile?seconds=$(SAMPLING_INTERVAL)
+# Consumer-specific variables
+CONSUMER_PPROF_PORT=6061
+CONSUMER_PROFILE_FILE=pprof_data/consumer_profile.pb.gz
+CONSUMER_OUTPUT_FILE=pprof_data/consumer_out.svg
+CONSUMER_PROFILE_URL=http://localhost:$(CONSUMER_PPROF_PORT)/debug/pprof/profile?seconds=$(DOWNLOAD_INTERVAL)
+CONTINUOUS_CONSUMER_PROFILE_URL=http://localhost:$(CONSUMER_PPROF_PORT)/debug/pprof/profile?seconds=$(SAMPLING_INTERVAL)
 
-run_consumer_pprof:
-	go tool pprof http://localhost:$(CONSUMER_PPROF_PORT)/debug/pprof/profile?seconds=30
+define flamegraph_generation_overwrite
+	curl -s $(1) -o $(2); \
+	go tool pprof -raw -output=pprof_data/profile.out $(2); \
+	$(FLAMEGRAPH_DIR)/stackcollapse-go.pl pprof_data/profile.out > pprof_data/out.folded; \
+	$(FLAMEGRAPH_DIR)/flamegraph.pl pprof_data/out.folded > $(3); \
+	echo "Flamegraph saved as $(3)";
+endef
 
+define flamegraph_generation_append
+	curl -s $(1) -o $(2); \
+	go tool pprof -raw -output=pprof_data/profile.out $(2); \
+	$(FLAMEGRAPH_DIR)/stackcollapse-go.pl pprof_data/profile.out >> pprof_data/out.folded; \
+	$(FLAMEGRAPH_DIR)/flamegraph.pl pprof_data/out.folded > $(3); \
+	echo "Flamegraph saved as $(3)";
+endef
+
+producer_flamegraph: $(PRODUCER_PROFILE_FILE)
+	$(call flamegraph_generation_ovwerwrite, $(PRODUCER_PROFILE_URL), $(PRODUCER_PROFILE_FILE), $(PRODUCER_OUTPUT_FILE))
+
+consumer_flamegraph: $(CONSUMER_PROFILE_FILE)
+	$(call flamegraph_generation_overwrite, $(CONSUMER_PROFILE_URL), $(CONSUMER_PROFILE_FILE), $(CONSUMER_OUTPUT_FILE))
+
+$(PRODUCER_PROFILE_FILE):
+	echo "Capturing profile from $(PRODUCER_PROFILE_URL)..."; \
+	curl -s -o $(PRODUCER_PROFILE_FILE) $(PRODUCER_PROFILE_URL)
+
+$(CONSUMER_PROFILE_FILE):
+	echo "Capturing profile from $(CONSUMER_PROFILE_URL)..."; \
+	curl -s -o $(CONSUMER_PROFILE_FILE) $(CONSUMER_PROFILE_URL)
+
+define continuous_flamegraph
+	while true; do \
+	  $(call flamegraph_generation_append, $(1), $(2), $(3)) \
+	done
+endef
+
+continuous_producer_flamegraph:
+	$(eval PRODUCER_PROFILE_URL := $(CONTINUOUS_PRODUCER_PROFILE_URL))
+	$(call continuous_flamegraph, $(PRODUCER_PROFILE_URL), $(PRODUCER_PROFILE_FILE), $(PRODUCER_OUTPUT_FILE))
+
+continuous_consumer_flamegraph:
+	$(eval CONSUMER_PROFILE_URL := $(CONTINUOUS_CONSUMER_PROFILE_URL))
+	$(call continuous_flamegraph, $(CONSUMER_PROFILE_URL), $(CONSUMER_PROFILE_FILE), $(CONSUMER_OUTPUT_FILE))
+
+db_wipe:
+	@echo "Ensuring the PostgreSQL container is running..."
+	@if [ $$(docker ps -q -f name=postgres) = "" ]; then \
+		echo "PostgreSQL container is not running. Starting it..."; \
+		docker-compose up -d postgress; \
+		sleep 5; \
+	else \
+		echo "PostgreSQL container is already running."; \
+	fi
+	@echo "Dropping and recreating the tasks_db database..."
+	docker exec -it postgres psql -U postgres -c "DROP DATABASE IF EXISTS tasks_db;"
+	docker exec -it postgres psql -U postgres -c "CREATE DATABASE tasks_db;"
+	@echo "Database tasks_db wiped and recreated."
+
+
+.PHONY: sqlc db_wipe
+.PHONY:	build clean consumer producer
+.PHONY: run lint run_producer run_consumer producer_flamegraph consumer_flamegraph continuous_producer_flamegraph continuous_consumer_flamegraph
+.PHONY: release_producer_major release_producer_minor release_consumer_major release_consumer_minor

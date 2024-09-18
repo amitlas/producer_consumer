@@ -6,23 +6,14 @@ import (
     "os"
     "bytes"
     "strings"
-    "net/http"
     "path/filepath"
     "encoding/json"
-
-    _ "net/http/pprof"
-
-    "github.com/prometheus/client_golang/prometheus/promhttp"
 
     zmq "github.com/pebbe/zmq4"
     log "github.com/sirupsen/logrus"
 )
 
 const zeroMQPort = 5555
-const logRelativePath = "LOG_RELATIVE_PATH"
-const baseAppPath = "BASE_APP_PATH"
-const defaultAppPath = "/app"
-const defaultLogRelativePath = "log"
 
 // get environment variable value
 //
@@ -40,9 +31,6 @@ func getEnvVar(key, defaultValue string) string {
     return value
 }
 
-
-var appName string
-
 /*
  *decided not to go with embed here, to allow dynmic load of the file from container, for easier config update
 //go:embed config.json
@@ -53,11 +41,6 @@ var commMethodMap = map[string]zmq.Type{
     "pull": zmq.PULL,
 }
 
-var logVerMap = map[string]log.Level{
-    "debug": log.DebugLevel,
-    "info": log.InfoLevel,
-    "error": log.ErrorLevel,
-}
 
 // Print app version and close the app when -v flag is received
 //
@@ -71,21 +54,6 @@ func HandleVersionFlag(version *string) {
         fmt.Printf("Version: %s\n", *version)
         os.Exit(0)
     }
-}
-
-// Set app logging level
-//
-// Params:
-// -lvl - request level(supported: debug/info/error)
-func SetLoggingLevel(lvl string) error {
-    level, ok := logVerMap[strings.ToLower(lvl)]
-    if (!ok) {
-        return fmt.Errorf("invalid log level[%s] requeted", lvl)
-    }
-
-    log.SetFormatter(&log.TextFormatter{})
-    log.SetLevel(level)
-    return nil
 }
 
 // Load app config according to config struct
@@ -133,75 +101,6 @@ func LoadConfig[T any](fileName string, validateFunc func(*T) error) (*T, error)
     return &config, nil
 }
 
-type loggerFuncCB func() (func(), error)
-
-// Set app logging to console
-func setLoggingConsole() (func(), error) {
-    log.SetOutput(os.Stdout)
-    log.SetFormatter(&log.TextFormatter{
-        FullTimestamp: true,
-    })
-
-    return nil, nil
-}
-
-// Set app logging to file
-//
-// Return:
-// cleanup cb to call on app termination
-func setLoggingFile() (func(), error) {
-    appPath := getEnvVar(baseAppPath, defaultAppPath)
-    logsRelPath := getEnvVar(logRelativePath, defaultLogRelativePath)
-
-    path := filepath.Join(appPath, logsRelPath, appName)
-    logFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-    if err != nil {
-        return nil, err
-    }
-
-    log.SetOutput(logFile)
-    log.SetFormatter(&log.TextFormatter{
-        FullTimestamp: true,
-    })
-
-    cleanup := func() {
-        if err := logFile.Close(); err != nil {
-            log.Errorf("Failed to close log file: %v", err)
-        }
-    }
-
-    return cleanup, nil
-}
-
-var logOutputMap = map[string]loggerFuncCB{
-    "console": setLoggingConsole,
-    "file":    setLoggingFile,
-}
-
-// Set logging output
-//
-// Params:
-// output - logs output method (supported: file/console)
-//
-// Return:
-// cleanup cb to call on app termination
-func SetLoggingOutput(output string) (func(), error) {
-    cb, ok := logOutputMap[output]
-    if !ok {
-        return nil, fmt.Errorf("invalid log output type[%s] requested", output)
-    }
-
-    cleanupCB, err := cb()
-    if err != nil {
-        return nil, err
-    }
-
-    return cleanupCB, nil
-}
-
-func SetAppName(name string) {
-    appName = name
-}
 
 // Connect to ZMQ as producer / consumer
 //
@@ -238,6 +137,7 @@ func ConnectToMQ(commMethod string, hostName *string) (*zmq.Socket, error) {
     log.Infof("ZMQ is running on port %d", zeroMQPort)
     return socket, nil
 }
+
 // Serialize msg to bytearray
 func SerializeTaskMsg(msg *TaskMsg) ([]byte, error) {
     var buf bytes.Buffer
@@ -257,29 +157,4 @@ func DeserializeTaskMsg(data []byte) (*TaskMsg, error) {
         return &msg, err
     }
     return &msg, nil
-}
-
-// Register and run prometheus(blocking)
-//
-// Pamars:
-// - config - monitoring configurations
-// - registerCallbacks - callbacks func to register orinetheus data
-func RunPrometheusServer(config *MontioringConfig, registerCallbacks func()) {
-    registerCallbacks()
-
-    log.Info("Starting prometheus server")
-    http.Handle(config.PrometheusEndPoint, promhttp.Handler())
-    err := http.ListenAndServe(fmt.Sprintf(":%d", config.PrometheusPort), nil)
-    if (nil != err) {
-        log.Fatalf("Failed to start Prometheus server: %v", err)
-    }
-}
-
-// Register and run pprof server(blocking)
-//
-// Pamars:
-// - config - monitoring configurations
-func RunPprofServer(config *MontioringConfig) {
-    log.Infof("Starting pprof on :%d", config.ProfilingPort)
-    log.Warning(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", config.ProfilingPort), nil))
 }
