@@ -270,6 +270,9 @@ func main() {
     // goroutine to handle prometheus server
     go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback)
 
+    // goroutine to handle pprof server
+    go utils.RunPprofServer(&config.MonitoringConfig)
+
     // keep app running till backlog limit reached
     <-backlogLimitReached
 

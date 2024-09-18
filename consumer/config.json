@@ -15,7 +15,8 @@
   },
   "monitoring": {
       "prometheus_port": 9090,
-      "prometheus_end_point": "/metrics"
+      "prometheus_end_point": "/metrics",
+      "profiling_port": 6061
   }
 }
 

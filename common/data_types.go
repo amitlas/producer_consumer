@@ -3,7 +3,7 @@ package utils
 type MontioringConfig struct {
     PrometheusPort      int     `json:"prometheus_port"`
     PrometheusEndPoint  string  `json:"prometheus_end_point"`
-    ProfilingPort       string  `json:"profiling_port"`
+    ProfilingPort       int     `json:"profiling_port"`
 }
 
 type DBConfig struct {

@@ -4,6 +4,8 @@ GO_PRODUCER_DIR=$(SCRIPT_DIR)/producer
 GO_CONSUMER_DIR=$(SCRIPT_DIR)/consumer
 DOCKER_COMPOSE_FILE=$(SCRIPT_DIR)/docker-compose.yml
 LOGS_PATH=$(SCRIPT_DIR)/logs/
+PEODUCER_PPROF_PORT=6060
+CONSUMER_PPROF_PORT=6061
 
 # Paths to the version files for producer and consumer
 PRODUCER_VERSION_FILE = producer/VERSION
@@ -89,4 +91,10 @@ release_consumer_minor: consumer
 	@echo "Build succeeded. Updating consumer minor version..."
 	@NEW_MINOR=$$(($(CONSUMER_MINOR) + 1)) && echo "$(CONSUMER_MAJOR).$$NEW_MINOR.0" > $(CONSUMER_VERSION_FILE)
 	@$(MAKE) consumer
+
+run_producer_pprof:
+	go tool pprof http://localhost:$(PRODUCER_PPROF_PORT)/debug/pprof/profile?seconds=30
+
+run_consumer_pprof:
+	go tool pprof http://localhost:$(CONSUMER_PPROF_PORT)/debug/pprof/profile?seconds=30
 

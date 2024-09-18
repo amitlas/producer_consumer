@@ -9,6 +9,7 @@ services:
       - db_net
     ports:
       - "5555:5555"
+      - "6060:6060"
     volumes:
       - ./producer/config.json:/app/config.json
       - ./logs:/app/logs
@@ -33,6 +34,8 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./consumer/config.json:/app/config.json
+    ports:
+      - "6061:6061"
     environment:
       - LOG_RELATIVE_PATH=/logs
       - BASE_APP_PATH=/app

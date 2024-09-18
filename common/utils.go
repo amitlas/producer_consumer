@@ -8,8 +8,9 @@ import (
     "strings"
     "net/http"
     "path/filepath"
-
     "encoding/json"
+
+    _ "net/http/pprof"
 
     "github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -274,3 +275,11 @@ func RunPrometheusServer(config *MontioringConfig, registerCallbacks func()) {
     }
 }
 
+// Register and run pprof server(blocking)
+//
+// Pamars:
+// - config - monitoring configurations
+func RunPprofServer(config *MontioringConfig) {
+    log.Infof("Starting pprof on :%d", config.ProfilingPort)
+    log.Warning(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", config.ProfilingPort), nil))
+}

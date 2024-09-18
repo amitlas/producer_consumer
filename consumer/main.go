@@ -280,5 +280,8 @@ func main() {
     // goroutine to handle prometheus server
     go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback)
 
+    // goroutine to handle pprof server
+    go utils.RunPprofServer(&config.MonitoringConfig)
+
     wg.Wait()
 }
