@@ -58,8 +58,7 @@ stop:
 
 lint:
 	@echo "Linting Go code..."
-	cd $(GO_PRODUCER_DIR) && golangci-lint run
-	cd $(GO_CONSUMER_DIR) && golangci-lint run
+	golangci-lint run
 
 run_producer:
 	docker run --rm -it $(PRODUCER_CONTAINER_NAME):latest /bin/sh

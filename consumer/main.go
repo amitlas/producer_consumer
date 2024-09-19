@@ -30,15 +30,6 @@ var taskReadingQueue = make(chan []byte, taskReadingMsgBuffSize)
 var taskProcessingQueue = make(chan *db.Task, taskProcessingMsgBuffSize)
 var taskFinishingQueue = make(chan *db.Task, taskFinishingMsgBuffSize)
 
-
-
-//todo:
-//For each incoming task, have a final log which describes the tasks content and the calculated
-//total sum for that task’s type. - final log - task is done, content, whats clculated total sum? kept by consumer? use
-//mtx
-
-
-
 var (
     finishedTasksCounter = prometheus.NewCounter(
         prometheus.CounterOpts{
@@ -99,7 +90,11 @@ func validateConfig(config *Config) error {
 // queue to keep pulling data. pass to worker via taskReadingQueue
 func consumeFromZMQ(socket *zmq.Socket, limiter *rate.Limiter) {
     for {
-        limiter.Wait(context.Background())
+        err := limiter.Wait(context.Background())
+        if (nil != err) {
+            log.Errorf("Error waiting on limiter: %v", err)
+            continue
+        }
 
         msg, err := socket.RecvBytes(0)
         if (nil != err) {

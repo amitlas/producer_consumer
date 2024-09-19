@@ -7,7 +7,6 @@ import (
     "math/rand"
     "context"
     "database/sql"
-    "net/http"
 
     "prod_cons/common"
     "prod_cons/db"
@@ -43,10 +42,6 @@ var (
 
 var backlogLimitReached = make (chan struct{})
 
-// Prometheus metrics handler
-func metricsHandler(w http.ResponseWriter, r *http.Request) {
-    http.ServeFile(w, r, "/metrics")
-}
 // CB func to register prometheus data
 func registerPromethesDataCallback() {
     log.Debug("Register prometheus tasksCounter counter")
@@ -162,7 +157,7 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
 // main task creation logic
 func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queries) {
 
-    log.Debug("Starting main loop, limitng to %d messages per sec", config.MsgProdRate)
+    log.Debugf("Starting main loop, limitng to %d messages per sec", config.MsgProdRate)
 
     ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
     defer ticker.Stop()
