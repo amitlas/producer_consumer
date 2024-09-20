@@ -153,7 +153,7 @@ db_wipe:
 	@echo "Ensuring the PostgreSQL container is running..."
 	@if [ $$(docker ps -q -f name=postgres) = "" ]; then \
 		echo "PostgreSQL container is not running. Starting it..."; \
-		docker-compose up -d postgress; \
+		docker-compose up -d postgres; \
 		sleep 5; \
 	else \
 		echo "PostgreSQL container is already running."; \
@@ -164,7 +164,17 @@ db_wipe:
 	@echo "Database tasks_db wiped and recreated."
 
 
+manual_migrate:
+	flyway migrate
+
+manual_rollback:
+	flyway revert
+
+get_db_table_columns:
+	docker exec -it postgres psql -U postgres -d tasks_db -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tasks';"
+
 .PHONY: sqlc db_wipe
 .PHONY:	build clean consumer producer
 .PHONY: run lint run_producer run_consumer producer_flamegraph consumer_flamegraph continuous_producer_flamegraph continuous_consumer_flamegraph
 .PHONY: release_producer_major release_producer_minor release_consumer_major release_consumer_minor
+.PHONY: manual_migrate manual_rollback get_db_table_columns

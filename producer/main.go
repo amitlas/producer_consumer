@@ -65,7 +65,7 @@ func validateConfig(config *Config) error {
 // Params:
 //  - DB handler
 func runDBMigrations(db *sql.DB) error {
-    const DBName = "postgress"
+    const DBName = "postgres"
     const srcName = "iofs"
 
     log.Info("Running DB Migrations")
@@ -127,7 +127,7 @@ func createTaskAndGetBacklog(queries *db.Queries, taskParams *db.CreateTaskAndGe
 // - msgBytes - bytearray of data
 func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
     retries := 5
-    timeout := 1 * time.Second
+    timeout := 200 * time.Millisecond
 
     for attempt := 1; attempt <= retries; attempt++ {
         // Create a channel to signal when the send operation is done
@@ -180,6 +180,9 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
                 log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
             }
             continue
+        } else if (backlogCount >= config.MaxBacklog) {
+            log.Infof("Backlog reached its limit[%d], producer is closing", config.MaxBacklog)
+            break
         }
 
         log.Infof("task %d created", taskID)
@@ -208,15 +211,13 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
             if (errCnt > errorLimit) {
                 log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
             }
-            continue
+            continue;
         }
 
         log.Debugf("Task %d has been created and sent, current backlog: %d", taskID, backlogCount)
-        if (backlogCount >= config.MaxBacklog) {
-            log.Infof("Backlog reached its limit[%d], producer is closing", config.MaxBacklog)
-            break
-        }
     }
+    log.Debugf("producer routing finished")
+    backlogLimitReached<-struct{}{}
 }
 
 func main() {

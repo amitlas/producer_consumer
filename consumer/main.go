@@ -30,39 +30,28 @@ var taskReadingQueue = make(chan []byte, taskReadingMsgBuffSize)
 var taskProcessingQueue = make(chan *db.Task, taskProcessingMsgBuffSize)
 var taskFinishingQueue = make(chan *db.Task, taskFinishingMsgBuffSize)
 
+
+
+
+
+
+
+
 var (
-    finishedTasksCounter = prometheus.NewCounter(
+    totalProcessedValueByType = prometheus.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "finished_tasks_counter",
-            Help: "Total number of tasks finished by the consumer.",
-        },
-    )
-)
-
-var (
-    inProgressTasksCounter = prometheus.NewGauge(
-        prometheus.GaugeOpts{
-            Name: "in_progress_tasks_counter",
-            Help: "Total number of tasks in progress by the consumer.",
-        },
-    )
-)
-
-var (
-    runningTasksByTypeCounter = prometheus.NewGaugeVec(
-        prometheus.GaugeOpts{
-            Name: "running_tasks_by_type_counter",
-            Help: "Total number of tasks created by the producer.",
+            Name: "total_processed_value_by_type",
+            Help: "Total number of tasks value processed by the consumer per task type.",
         },
         []string{"type"},
     )
 )
 
 var (
-    totalValueByType = prometheus.NewCounterVec(
+    totalProcessedTasksByType = prometheus.NewCounterVec(
         prometheus.CounterOpts{
-            Name: "total_value_by_type",
-            Help: "Total number of tasks created by the producer.",
+            Name: "total_processed_tasks_by_type",
+            Help: "Total number of tasks processed by the consumer per task type.",
         },
         []string{"type"},
     )
@@ -71,10 +60,8 @@ var (
 // CB func to register prometheus data
 func registerPromethesDataCallback() {
     log.Debug("Register prometheus tasksCounter counter")
-    prometheus.MustRegister(finishedTasksCounter)
-    prometheus.MustRegister(inProgressTasksCounter)
-    prometheus.MustRegister(runningTasksByTypeCounter)
-    prometheus.MustRegister(totalValueByType)
+    prometheus.MustRegister(totalProcessedValueByType)
+    prometheus.MustRegister(totalProcessedTasksByType)
 }
 
 // configuration validator callback
@@ -110,9 +97,12 @@ func consumeFromZMQ(socket *zmq.Socket, limiter *rate.Limiter) {
 // convert DB format to local task data format
 func convertToProcessingQueueChan(dbTask *db.GetTaskByIDUpdateStateRow) *db.Task {
     return &db.Task{
-        ID:        dbTask.ID,
-        State:     dbTask.State,
-        Value:     dbTask.Value,
+        ID:             dbTask.ID,
+        Type:           dbTask.Type,
+        State:          dbTask.State,
+        Value:          dbTask.Value,
+        CreationTime:   dbTask.CreationTime,
+        LastUpdateTime: dbTask.LastUpdateTime,
     }
 }
 
@@ -134,14 +124,14 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
             ID:         int32(taskMsg.ID),
             State:      db.TaskStateRunning,
         })
+        log.Errorf("+++read task: %d, type: %d", task.ID, task.Type)
         if (nil != err) {
             log.Errorf("Error fetching task %d from DB: %v", taskMsg.ID, err)
             continue
         }
 
-        log.Debugf("Fetched Task from DB: %+v", task)
         // Pass the task to the next stage
-        taskProcessingQueue <- convertToProcessingQueueChan(&task)
+        taskProcessingQueue <-convertToProcessingQueueChan(&task)
     }
 }
 
@@ -158,7 +148,7 @@ func startDBreaders(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
 
 // task finisher worker logic
 // update the db task state to completed
-func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan *db.Task, taskProcessingQueue <-chan *db.Task, wg *sync.WaitGroup) {
+func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan *db.Task, wg *sync.WaitGroup) {
     defer wg.Done()
 
     for task := range taskFinishingQueue {
@@ -173,9 +163,6 @@ func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan *db.Task, tas
         }
 
         // atomic actions
-        finishedTasksCounter.Inc()
-        inProgressTasksCounter.Dec()
-        runningTasksByTypeCounter.WithLabelValues(fmt.Sprintf("%d", task.Type)).Dec()
 
         log.Infof("Updated DB task %d to finished", task.ID)
     }
@@ -186,7 +173,7 @@ func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan *db.Task, tas
 func startTaskFinishWorkers(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
-        go dbFinishAction(queries, taskFinishingQueue, taskProcessingQueue, wg)
+        go dbFinishAction(queries, taskFinishingQueue, wg)
     }
 }
 
@@ -202,11 +189,12 @@ func TaskHandleAction(taskProcessingQueue <-chan *db.Task, taskFinishingQueue ch
     defer wg.Done()
     for task := range taskProcessingQueue {
         log.Debugf("handler queue working on task %d", task.ID)
+        log.Errorf("++working on tsk %d ,type : %d", task.ID,task.Type)
 
         // atomic actions
-        totalValueByType.WithLabelValues(fmt.Sprintf("%d", task.Type)).Add(float64(task.Value))
-        inProgressTasksCounter.Inc()
-        runningTasksByTypeCounter.WithLabelValues(fmt.Sprintf("%d", task.Type)).Inc()
+        totalProcessedValueByType.WithLabelValues(fmt.Sprintf("%d", task.Type)).Add(float64(task.Value))
+        totalProcessedTasksByType.WithLabelValues(fmt.Sprintf("%d", task.Type)).Inc()
+        log.Errorf("++update total value by type for task %d with %d, new val: %f", task.Type, task.Value, totalProcessedValueByType.WithLabelValues(fmt.Sprintf("%d", task.Type)))
 
         run_task(task, taskFinishingQueue)
         taskFinishingQueue <- task

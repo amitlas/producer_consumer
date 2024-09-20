@@ -7,6 +7,7 @@ services:
     networks:
       - zmq_net
       - db_net
+      - monitoring_net
     ports:
       - "5555:5555"
       - "6060:6060"
@@ -14,7 +15,7 @@ services:
       - ./producer/config.json:/app/config.json
       - ./logs:/app/logs
     depends_on:
-      - postgress
+      - postgres
     environment:
       - LOG_RELATIVE_PATH=/logs
       - BASE_APP_PATH=/app
@@ -27,10 +28,11 @@ services:
     container_name: consumer
     depends_on:
       - producer
-      - postgress
+      - postgres
     networks:
       - zmq_net
       - db_net
+      - monitoring_net
     volumes:
       - ./logs:/app/logs
       - ./consumer/config.json:/app/config.json
@@ -40,7 +42,7 @@ services:
       - LOG_RELATIVE_PATH=/logs
       - BASE_APP_PATH=/app
 
-  postgress:
+  postgres:
     image: postgres:14-alpine
     container_name: postgres
     environment:
@@ -49,6 +51,7 @@ services:
       POSTGRES_DB: tasks_db
     networks:
       - db_net
+      - monitoring_net
     ports:
       - "5432:5432"
     volumes:
@@ -63,7 +66,7 @@ services:
     ports:
       - "9090:9090"
     networks:
-      - db_net
+      - monitoring_net
     command:
       - --config.file=/etc/prometheus/prometheus.yml
 
@@ -73,18 +76,19 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/:/var/lib/grafana/
 
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
     networks:
-      - db_net
+      - monitoring_net
 
 networks:
   zmq_net:
     driver: bridge
   db_net:
     driver: bridge
+  monitoring_net:
 
 volumes:
   postgres_data:

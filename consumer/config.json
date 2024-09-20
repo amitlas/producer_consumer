@@ -3,7 +3,7 @@
   "rate_limit":			1000,
   "zmq_host_name": "producer",
   "db_conn_config": {
-    "host": "postgress",
+    "host": "postgres",
     "port": 5432,
     "user": "postgres",
     "password": "securepassword",
@@ -11,7 +11,7 @@
   },
   "logging": {
       "level": "info",
-      "output": "console"
+      "output": "file"
   },
   "monitoring": {
       "prometheus_port": 9090,
