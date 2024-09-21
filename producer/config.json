@@ -3,7 +3,7 @@
   "max_backlog": 1000,
   "logging_level": "INFO",
   "logging_type": "FILE",
-  "msg_prod_rate": 1000,
+  "msg_prod_rate": 10000,
   "db_conn_config": {
     "host": "postgres",
     "port": 5432,
