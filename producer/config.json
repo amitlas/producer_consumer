@@ -1,24 +1,22 @@
 {
-  "zero_mq_protocol": "push",
-  "max_backlog": 1000,
-  "logging_level": "INFO",
-  "logging_type": "FILE",
-  "msg_prod_rate": 10000,
+  "zero_mq_protocol":   "push",
+  "max_backlog":        1000,
+  "msg_prod_rate":      1000,
   "db_conn_config": {
-    "host": "postgres",
-    "port": 5432,
-    "user": "postgres",
+    "host":     "postgres",
+    "port":     5432,
+    "user": "   postgres",
     "password": "securepassword",
-    "dbname": "tasks_db"
+    "dbname":   "tasks_db"
   },
   "logging": {
-      "level": "info",
-      "output": "file"
+      "level":  "debug",
+      "output": "console"
   },
   "monitoring": {
-      "prometheus_port": 9090,
-      "prometheus_end_point": "/metrics",
-      "profiling_port": 6060
+      "prometheus_port":        9090,
+      "prometheus_end_point":   "/metrics",
+      "profiling_port":         6060
   }
 }
 

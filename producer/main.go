@@ -3,6 +3,7 @@ package main
 import (
     "fmt"
     "embed"
+    "sync"
     "time"
     "math/rand"
     "context"
@@ -23,9 +24,11 @@ import (
 )
 
 var version = "development"
+var onceTerminateApp sync.Once
 const taskTypeRange = 10
 const taskValueRange = 100
 const migrationsPath = "migrations"
+const numWorkers = 100
 //const errorLimit = 20
 
 //go:embed migrations/*.sql
@@ -152,7 +155,7 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
     return fmt.Errorf("failed to send message after %d attempts", retries)
 }
 
-func msgCreationLogic(workerID int, producer *zmq.Socket, config *Config, queries *db.Queries, stopTaskWorkers chan bool) {
+func msgCreationLogic(workerID int, producer *zmq.Socket, config *Config, queries *db.Queries, stopTaskWorkersCB func()) {
         taskParams := &db.CreateTaskAndGetBacklogParams{
             Type:           int32(rand.Intn(taskTypeRange)),
             Value:          int32(rand.Intn(taskValueRange)),
@@ -164,10 +167,10 @@ func msgCreationLogic(workerID int, producer *zmq.Socket, config *Config, querie
         taskID, backlogCount, err := createTaskAndGetBacklog(queries, taskParams)
         if (nil != err) {
             log.Errorf("[worker %d]Failed to create task: %v, dropping task", workerID, err)
-            continue
+            return
         } else if (backlogCount >= config.MaxBacklog) {
-            log.Infof("Backlog reached its limit[%d], producer is closing", workerID, config.MaxBacklog)
-            close(stopTaskWorkers)
+            log.Infof("[worker %d]Backlog reached its limit[%d], producer is closing", workerID, config.MaxBacklog)
+            stopTaskWorkersCB()
             return
         }
 
@@ -182,14 +185,14 @@ func msgCreationLogic(workerID int, producer *zmq.Socket, config *Config, querie
         msgBytes, err := utils.SerializeTaskMsg(msg)
         if (nil != err) {
             log.Errorf("[worker %d]Failed to serialize msg[taskID %d]: %s, dropping", workerID, taskID, err)
-            continue
+            return
         }
 
         log.Debugf("[worker %d]sending task %d to zmq", workerID, taskID)
         err = sendWithTimeout(producer, msgBytes)
         if (nil != err) {
             log.Errorf("[worker %d]Failed sending task %d to zeroMQ: %s, dropping", workerID, taskID, err)
-            continue;
+            return
         }
 
         log.Debugf("[worker %d]Task %d has been created and sent, current backlog: %d", workerID, taskID, backlogCount)
@@ -199,6 +202,13 @@ func msgCreationLogic(workerID int, producer *zmq.Socket, config *Config, querie
 func runTaskCreationLoop(workerID int, producer *zmq.Socket, config *Config, queries *db.Queries, ticker *time.Ticker, stopTaskWorkers chan bool, wg *sync.WaitGroup) {
     defer wg.Done()
 
+    var once sync.Once
+    stopTaskWorkersCB := func() {
+        once.Do(func() {
+         close(stopTaskWorkers)
+        })
+    }
+
     log.Infof("Starting worker %d main loop", workerID)
     for {
         select {
@@ -206,29 +216,35 @@ func runTaskCreationLoop(workerID int, producer *zmq.Socket, config *Config, que
             log.Info("Worker %d received termination signal", workerID)
             return
         case <-ticker.C:
-            msgCreationLogic(workerID, producer, config, queries, stopTaskWorkers)
+            msgCreationLogic(workerID, producer, config, queries, stopTaskWorkersCB)
         }
     }
 }
 
 // Tasks routines dispatcher
-func runTaskWorkers(producer *zmq.Socket, config *Config, queries *db.Queries, appWG *sync.WaitGroup, terminate chan struct{}) {
-    defer appWGappWG.Done()
+func runTaskWorkers(producer *zmq.Socket, config *Config, queries *db.Queries, appWG *sync.WaitGroup, terminateApp chan struct{}) {
+    defer appWG.Done()
 
     log.Infof("Starting wrokers dispatcher, limitng to %d messages per sec", config.MsgProdRate)
     ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
     defer ticker.Stop()
     stopTaskWorkers := make(chan bool)
-    workersWG := sync.WaitGroup
+    var workersWG sync.WaitGroup
 
-    for i := 0; i < numWorker; i++ {
+    for i := 0; i < numWorkers; i++ {
         workersWG.Add(1)
-        go runTaskCreationLoop(i, producer *zmq.Socket, config *Config, queries *db.Queries, ticker, stopTaskWorkers, &workersWG)
+        go runTaskCreationLoop(i, producer, config, queries, ticker, stopTaskWorkers, &workersWG)
     }
 
     workersWG.Wait()
-    close(terminate)
-    log.Debugf("Producer running finished")
+    closeTerminateAppChannel(terminateApp)
+    log.Infof("Producer running finished")
+}
+
+func closeTerminateAppChannel(ch chan struct{}) {
+    onceTerminateApp.Do(func() {
+        close(ch)
+    })
 }
 
 func main() {
@@ -272,6 +288,7 @@ func main() {
     }
 
     terminateApp := make(chan struct{})
+    var wg sync.WaitGroup
 
     // goroutine to handle main loop logic
     wg.Add(1)

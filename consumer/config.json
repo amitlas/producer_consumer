@@ -1,22 +1,22 @@
 {
-  "zero_mq_protocol":	"pull",
-  "rate_limit":			1000,
-  "zmq_host_name": "producer",
+  "zero_mq_protocol":   "pull",
+  "rate_limit":         1000,
+  "zmq_host_name":      "producer",
   "db_conn_config": {
-    "host": "postgres",
-    "port": 5432,
-    "user": "postgres",
-    "password": "securepassword",
-    "dbname": "tasks_db"
+    "host":         "postgres",
+    "port":         5432,
+    "user":         "postgres",
+    "password":     "securepassword",
+    "dbname":       "tasks_db"
   },
   "logging": {
-      "level": "info",
+      "level":  "debug",
       "output": "file"
   },
   "monitoring": {
-      "prometheus_port": 9090,
-      "prometheus_end_point": "/metrics",
-      "profiling_port": 6061
+      "prometheus_port":        9090,
+      "prometheus_end_point":   "/metrics",
+      "profiling_port":         6061
   }
 }
 
