@@ -28,7 +28,7 @@ var onceTerminateApp sync.Once
 const taskTypeRange = 10
 const taskValueRange = 100
 const migrationsPath = "migrations"
-const numWorkers = 100
+const numWorkers = 10
 //const errorLimit = 20
 
 //go:embed migrations/*.sql
@@ -132,16 +132,16 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
 
     for attempt := 1; attempt <= retries; attempt++ {
         // Create a channel to signal when the send operation is done
-        maxAttemtReached := make(chan error, 1)
+        maxAttemptReached := make(chan error, 1)
 
         go func() {
             _, err := producer.SendBytes(msgBytes, 0)
-            maxAttemtReached <- err
+            maxAttemptReached <- err
         }()
 
         // wait for either success/failure/timeout
         select {
-            case err := <-maxAttemtReached:
+            case err := <-maxAttemptReached:
                 if err == nil {
                     return nil // Success
                 }

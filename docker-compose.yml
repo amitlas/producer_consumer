@@ -19,8 +19,6 @@ services:
     environment:
       - LOG_RELATIVE_PATH=/logs
       - BASE_APP_PATH=/app
-      - GOGC=200
-      - GOMEMLIMIT=512MiB
 
   consumer:
     build:
@@ -42,8 +40,6 @@ services:
     environment:
       - LOG_RELATIVE_PATH=/logs
       - BASE_APP_PATH=/app
-      - GOGC=200
-      - GOMEMLIMIT=512MiB
 
   postgres:
     image: postgres:14-alpine

@@ -122,7 +122,7 @@ define flamegraph_generation_append
 endef
 
 producer_flamegraph: $(PRODUCER_PROFILE_FILE)
-	$(call flamegraph_generation_ovwerwrite, $(PRODUCER_PROFILE_URL), $(PRODUCER_PROFILE_FILE), $(PRODUCER_OUTPUT_FILE))
+	$(call flamegraph_generation_overwrite, $(PRODUCER_PROFILE_URL), $(PRODUCER_PROFILE_FILE), $(PRODUCER_OUTPUT_FILE))
 
 consumer_flamegraph: $(CONSUMER_PROFILE_FILE)
 	$(call flamegraph_generation_overwrite, $(CONSUMER_PROFILE_URL), $(CONSUMER_PROFILE_FILE), $(CONSUMER_OUTPUT_FILE))

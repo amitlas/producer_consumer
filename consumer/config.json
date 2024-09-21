@@ -11,7 +11,7 @@
   },
   "logging": {
       "level":  "debug",
-      "output": "file"
+      "output": "console"
   },
   "monitoring": {
       "prometheus_port":        9090,
