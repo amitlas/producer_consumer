@@ -25,8 +25,8 @@ import (
 var version = "development"
 const taskTypeRange = 10
 const taskValueRange = 100
-const errorLimit = 20
 const migrationsPath = "migrations"
+//const errorLimit = 20
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
@@ -162,7 +162,9 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
     ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
     defer ticker.Stop()
 
+    /*
     errCnt := 0
+    */
     for range ticker.C {
         taskParams := &db.CreateTaskAndGetBacklogParams{
             Type:           int32(rand.Intn(taskTypeRange)),
@@ -174,11 +176,13 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
         log.Debug("creating task and writing to db")
         taskID, backlogCount, err := createTaskAndGetBacklog(queries, taskParams)
         if (nil != err) {
-            errCnt += 1
             log.Errorf("Failed to create task: %v, dropping task", err)
+            /*
+            errCnt += 1
             if (errCnt > errorLimit) {
                 log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
             }
+            */
             continue
         } else if (backlogCount >= config.MaxBacklog) {
             log.Infof("Backlog reached its limit[%d], producer is closing", config.MaxBacklog)
@@ -195,22 +199,26 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
         log.Debugf("serializing task %d to zmq", taskID)
         msgBytes, err := utils.SerializeTaskMsg(msg)
         if (nil != err) {
-            errCnt += 1
             log.Errorf("Failed to serialize msg[taskID %d]: %s, dropping", taskID, err)
+            /*
+            errCnt += 1
             if (errCnt > errorLimit) {
                 log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
             }
+            */
             continue
         }
 
         log.Debugf("sending task %d to zmq", taskID)
         err = sendWithTimeout(producer, msgBytes)
         if (nil != err) {
-            errCnt += 1
             log.Errorf("Failed sending task %d to zeroMQ: %s, dropping", taskID, err)
+            /*
+            errCnt += 1
             if (errCnt > errorLimit) {
                 log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
             }
+            */
             continue;
         }
 
