@@ -168,7 +168,7 @@ manual_migrate:
 	flyway migrate
 
 manual_rollback:
-	flyway revert
+	flyway undo
 
 get_db_table_columns:
 	docker exec -it postgres psql -U postgres -d tasks_db -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tasks';"
