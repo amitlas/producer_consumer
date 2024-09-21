@@ -31,12 +31,6 @@ var taskProcessingQueue = make(chan *db.Task, taskProcessingMsgBuffSize)
 var taskFinishingQueue = make(chan *db.Task, taskFinishingMsgBuffSize)
 
 
-
-
-
-
-
-
 var (
     totalProcessedValueByType = prometheus.NewCounterVec(
         prometheus.CounterOpts{
@@ -75,7 +69,7 @@ func validateConfig(config *Config) error {
 
 // read data from ZMQ, pass it to worker for msg parsing(deserializing) and release consumer
 // queue to keep pulling data. pass to worker via taskReadingQueue
-func consumeFromZMQ(socket *zmq.Socket, limiter *rate.Limiter) {
+func processMsgsWorker(socket *zmq.Socket, limiter *rate.Limiter) {
     for {
         err := limiter.Wait(context.Background())
         if (nil != err) {
@@ -124,7 +118,6 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
             ID:         int32(taskMsg.ID),
             State:      db.TaskStateRunning,
         })
-        log.Errorf("+++read task: %d, type: %d", task.ID, task.Type)
         if (nil != err) {
             log.Errorf("Error fetching task %d from DB: %v", taskMsg.ID, err)
             continue
@@ -139,11 +132,14 @@ func dbReaderAction(queries *db.Queries, taskReadingQueue <-chan []byte, taskPro
 // start the task DB reading workers queue
 // this is responsible to fetch task data from db, according to task id received from taskReadingQueue
 // and pass task data to taskProcessingQueue
-func startDBreaders(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
+func startDBreaders(queries *db.Queries, numWorkers int) *sync.WaitGroup {
+    var wg sync.WaitGroup
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
-        go dbReaderAction(queries, taskReadingQueue, taskProcessingQueue, wg)
+        go dbReaderAction(queries, taskReadingQueue, taskProcessingQueue, &wg)
     }
+
+    return &wg
 }
 
 // task finisher worker logic
@@ -170,11 +166,13 @@ func dbFinishAction(queries *db.Queries, taskFinishingQueue <-chan *db.Task, wg 
 
 // start the task finish workers queue
 // this is responsible to update db once task is done
-func startTaskFinishWorkers(queries *db.Queries, numWorkers int, wg *sync.WaitGroup) {
+func startTaskFinishWorkers(queries *db.Queries, numWorkers int) *sync.WaitGroup {
+    var wg sync.WaitGroup
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
-        go dbFinishAction(queries, taskFinishingQueue, wg)
+        go dbFinishAction(queries, taskFinishingQueue, &wg)
     }
+    return &wg
 }
 
 // run task
@@ -203,12 +201,28 @@ func TaskHandleAction(taskProcessingQueue <-chan *db.Task, taskFinishingQueue ch
 
 // start the task handlers workers pool
 // this is responsible to run the task
-func startTaskHandlingWorkers(numWorkers int, wg *sync.WaitGroup) {
+func startTaskHandlingWorkers(numWorkers int) *sync.WaitGroup{
+    var wg sync.WaitGroup
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
-        go TaskHandleAction(taskProcessingQueue, taskFinishingQueue, wg)
+        go TaskHandleAction(taskProcessingQueue, taskFinishingQueue, &wg)
     }
+    return &wg
+}
 
+// wait for first WG to finish, and trigger terminate app upon finish
+func waitForFirstToFinish(wgs []*sync.WaitGroup, terminate chan struct{}) {
+    var once sync.Once
+
+    for _, wg := range wgs {
+        go func(wg *sync.WaitGroup) {
+            wg.Wait()
+            once.Do(func() {
+                log.Info("Terminating app on WG finish")
+                close(terminate)
+            })
+        }(wg)
+    }
 }
 
 func main() {
@@ -248,23 +262,28 @@ func main() {
 
     queries := db.New(dbConn)
 
-    var wg sync.WaitGroup
+    var serversWG sync.WaitGroup
     // start worker threads
-    startDBreaders(queries, numDBReaders, &wg)
-    startTaskHandlingWorkers(numActionWorkers, &wg)
-    startTaskFinishWorkers(queries, numTaskFinishers, &wg)
+    readersWG := startDBreaders(queries, numDBReaders)
+    handlersWG := startTaskHandlingWorkers(numActionWorkers)
+    wokersWG := startTaskFinishWorkers(queries, numTaskFinishers)
 
     // set rate limiter for msg handling
     limiter := rate.NewLimiter(rate.Limit(config.RateLimit), 1/*sec*/)
 
     // handle requests
-    go consumeFromZMQ(consumer, limiter)
+    go processMsgsWorker(consumer, limiter)
+
+    // not very useful, as i dont have defined terminating scenario, but available for use
+    terminateApp := make(chan struct{})
 
     // goroutine to handle prometheus server
-    go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback)
+    go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback, serversWG, terminateApp)
 
     // goroutine to handle pprof server
-    go utils.RunPprofServer(&config.MonitoringConfig)
+    go utils.RunPprofServer(&config.MonitoringConfig, serversWG, terminateApp)
 
-    wg.Wait()
+    waitForFirstToFinish([]*sync.WaitGroup{&readersWG, &handlersWG, &workersWG}, terminateApp)
+    serversWG.Wait()
+
 }

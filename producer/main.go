@@ -40,8 +40,6 @@ var (
     )
 )
 
-var backlogLimitReached = make (chan struct{})
-
 // CB func to register prometheus data
 func registerPromethesDataCallback() {
     log.Debug("Register prometheus tasksCounter counter")
@@ -131,16 +129,16 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
 
     for attempt := 1; attempt <= retries; attempt++ {
         // Create a channel to signal when the send operation is done
-        done := make(chan error, 1)
+        maxAttemtReached := make(chan error, 1)
 
         go func() {
             _, err := producer.SendBytes(msgBytes, 0)
-            done <- err
+            maxAttemtReached <- err
         }()
 
         // wait for either success/failure/timeout
         select {
-            case err := <-done:
+            case err := <-maxAttemtReached:
                 if err == nil {
                     return nil // Success
                 }
@@ -154,18 +152,7 @@ func sendWithTimeout(producer *zmq.Socket, msgBytes []byte) error {
     return fmt.Errorf("failed to send message after %d attempts", retries)
 }
 
-// main task creation logic
-func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queries) {
-
-    log.Debugf("Starting main loop, limitng to %d messages per sec", config.MsgProdRate)
-
-    ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
-    defer ticker.Stop()
-
-    /*
-    errCnt := 0
-    */
-    for range ticker.C {
+func msgCreationLogic(workerID int, producer *zmq.Socket, config *Config, queries *db.Queries, stopTaskWorkers chan bool) {
         taskParams := &db.CreateTaskAndGetBacklogParams{
             Type:           int32(rand.Intn(taskTypeRange)),
             Value:          int32(rand.Intn(taskValueRange)),
@@ -173,59 +160,75 @@ func runTaskCreationLoop(producer *zmq.Socket, config *Config, queries *db.Queri
             CreationTime:   float64(time.Now().UTC().UnixMicro())/1e6, // get mirosec resolution
         }
 
-        log.Debug("creating task and writing to db")
+        log.Debugf("[worker %d]creating task and writing to db", workerID)
         taskID, backlogCount, err := createTaskAndGetBacklog(queries, taskParams)
         if (nil != err) {
-            log.Errorf("Failed to create task: %v, dropping task", err)
-            /*
-            errCnt += 1
-            if (errCnt > errorLimit) {
-                log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
-            }
-            */
+            log.Errorf("[worker %d]Failed to create task: %v, dropping task", workerID, err)
             continue
         } else if (backlogCount >= config.MaxBacklog) {
-            log.Infof("Backlog reached its limit[%d], producer is closing", config.MaxBacklog)
-            break
+            log.Infof("Backlog reached its limit[%d], producer is closing", workerID, config.MaxBacklog)
+            close(stopTaskWorkers)
+            return
         }
 
-        log.Infof("task %d created", taskID)
-        log.Debugf("current backlog: %d", backlogCount)
+        log.Infof("[worker %d]task %d created", workerID, taskID)
+        log.Debugf("[worker %d]current backlog: %d", workerID, backlogCount)
 
         msg := &utils.TaskMsg {
             ID: taskID,
         }
 
-        log.Debugf("serializing task %d to zmq", taskID)
+        log.Debugf("[worker %d]serializing task %d to zmq", workerID, taskID)
         msgBytes, err := utils.SerializeTaskMsg(msg)
         if (nil != err) {
-            log.Errorf("Failed to serialize msg[taskID %d]: %s, dropping", taskID, err)
-            /*
-            errCnt += 1
-            if (errCnt > errorLimit) {
-                log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
-            }
-            */
+            log.Errorf("[worker %d]Failed to serialize msg[taskID %d]: %s, dropping", workerID, taskID, err)
             continue
         }
 
-        log.Debugf("sending task %d to zmq", taskID)
+        log.Debugf("[worker %d]sending task %d to zmq", workerID, taskID)
         err = sendWithTimeout(producer, msgBytes)
         if (nil != err) {
-            log.Errorf("Failed sending task %d to zeroMQ: %s, dropping", taskID, err)
-            /*
-            errCnt += 1
-            if (errCnt > errorLimit) {
-                log.Fatalf("Producer reached max error limit[%d], closing the app", errorLimit)
-            }
-            */
+            log.Errorf("[worker %d]Failed sending task %d to zeroMQ: %s, dropping", workerID, taskID, err)
             continue;
         }
 
-        log.Debugf("Task %d has been created and sent, current backlog: %d", taskID, backlogCount)
+        log.Debugf("[worker %d]Task %d has been created and sent, current backlog: %d", workerID, taskID, backlogCount)
+}
+
+// main task creation logic
+func runTaskCreationLoop(workerID int, producer *zmq.Socket, config *Config, queries *db.Queries, ticker *time.Ticker, stopTaskWorkers chan bool, wg *sync.WaitGroup) {
+    defer wg.Done()
+
+    log.Infof("Starting worker %d main loop", workerID)
+    for {
+        select {
+        case <-stopTaskWorkers:
+            log.Info("Worker %d received termination signal", workerID)
+            return
+        case <-ticker.C:
+            msgCreationLogic(workerID, producer, config, queries, stopTaskWorkers)
+        }
     }
-    log.Debugf("producer routing finished")
-    backlogLimitReached<-struct{}{}
+}
+
+// Tasks routines dispatcher
+func runTaskWorkers(producer *zmq.Socket, config *Config, queries *db.Queries, appWG *sync.WaitGroup, terminate chan struct{}) {
+    defer appWGappWG.Done()
+
+    log.Infof("Starting wrokers dispatcher, limitng to %d messages per sec", config.MsgProdRate)
+    ticker := time.NewTicker(time.Second / time.Duration(config.MsgProdRate))
+    defer ticker.Stop()
+    stopTaskWorkers := make(chan bool)
+    workersWG := sync.WaitGroup
+
+    for i := 0; i < numWorker; i++ {
+        workersWG.Add(1)
+        go runTaskCreationLoop(i, producer *zmq.Socket, config *Config, queries *db.Queries, ticker, stopTaskWorkers, &workersWG)
+    }
+
+    workersWG.Wait()
+    close(terminate)
+    log.Debugf("Producer running finished")
 }
 
 func main() {
@@ -268,17 +271,21 @@ func main() {
         log.Fatalf("Failed running DB migrations: %s", err)
     }
 
+    terminateApp := make(chan struct{})
+
     // goroutine to handle main loop logic
-    go runTaskCreationLoop(producer, config, queries)
+    wg.Add(1)
+    go runTaskWorkers(producer, config, queries, &wg, terminateApp)
 
     // goroutine to handle prometheus server
-    go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback)
+    wg.Add(1)
+    go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback, &wg, terminateApp)
 
     // goroutine to handle pprof server
-    go utils.RunPprofServer(&config.MonitoringConfig)
+    wg.Add(1)
+    go utils.RunPprofServer(&config.MonitoringConfig, &wg, terminateApp)
 
-    // keep app running till backlog limit reached
-    <-backlogLimitReached
+    wg.Wait()
 
     log.Info("Producer has finished")
 }
