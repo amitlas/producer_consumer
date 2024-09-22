@@ -257,13 +257,6 @@ func startTaskHandlingWorkers(numWorkers int, terminateApp chan struct{}) *sync.
     return &wg
 }
 
-func closeTerminateAppChannel(id string, ch chan struct{}) {
-    onceTerminateApp.Do(func() {
-        log.Infof("[%s]Marking terminate app channel", id)
-        close(ch)
-    })
-}
-
 func main() {
     utils.HandleVersionFlag(&version)
     utils.SetAppName("consumer")
@@ -334,7 +327,7 @@ func main() {
     for id, wg := range workersWGs {
         go func(id string, wg *sync.WaitGroup) {
             wg.Wait()
-            workersDone <- id // Send the identifier of the finished WaitGroup
+            workersDone <- id
         }(id, wg)
     }
 

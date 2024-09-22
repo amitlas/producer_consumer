@@ -1,6 +1,6 @@
 {
   "zero_mq_protocol":   "push",
-  "max_backlog":        1000,
+  "max_backlog":        10000,
   "msg_prod_rate":      1000,
   "db_conn_config": {
     "host":     "postgres",
