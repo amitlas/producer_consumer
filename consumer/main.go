@@ -126,7 +126,6 @@ func dbReaderAction(workerID int, msg []byte, queries *db.Queries, taskProcessin
 
 // reader action wrapper to handler terminate app
 func dbReaderActionWrapper(workerID int, queries *db.Queries, taskReadingQueue <-chan []byte, taskProcessingQueue chan<- *db.Task, wg *sync.WaitGroup, terminateApp chan struct{}) {
-    log.Errorf("+++starting db reader %d", workerID)
     defer wg.Done()
 
     for {
@@ -134,13 +133,10 @@ func dbReaderActionWrapper(workerID int, queries *db.Queries, taskReadingQueue <
         case msg, ok := <-taskReadingQueue:
             if !ok {
                 log.Infof("[dbReaderWorker: %d]taskReadingQueue is not available, closing handler", workerID)
-                log.Errorf("+++failed reding reading quueue return workerc %d", workerID)
                 return
             }
             dbReaderAction(workerID, msg, queries, taskProcessingQueue)
-            log.Errorf("+++finished reading action on orkerc %d", workerID)
         case <-terminateApp:
-            log.Errorf("+++terimante app terminating db reader %d", workerID)
             log.Infof("[dbReaderWorker: %d]Received terminateApp signal, closing handler.", workerID)
             return
         }
@@ -153,7 +149,6 @@ func dbReaderActionWrapper(workerID int, queries *db.Queries, taskReadingQueue <
 func startDBreaders(queries *db.Queries, numWorkers int, terminateApp chan struct{}) *sync.WaitGroup {
     log.Debug("Starting DB readers workers")
 
-    log.Error("+++starting db regers")
     var wg sync.WaitGroup
     for i:=0; i<numWorkers; i++ {
         wg.Add(1)
@@ -278,13 +273,11 @@ func main() {
         log.Fatalf("Failed loading config: %s", err)
     }
 
-    log.Errorf("+++set log level")
     err = utils.SetLoggingLevel(config.Logging.Level)
     if (nil != err) {
         log.Fatalf("Failed to set logging: %s", err)
     }
 
-    log.Errorf("+++set log outpu")
     cleanupCB, err := utils.SetLoggingOutput(config.Logging.Output)
     if (nil != err) {
         log.Fatalf("Failed to set logging: %s", err)
@@ -293,14 +286,12 @@ func main() {
         defer cleanupCB()
     }
 
-    log.Errorf("+++conntec to db")
     dbConn, err := utils.ConnectToDB(&config.DBConnConfig)
     if (nil != err) {
         log.Fatalf("Failed connecting to DB: %s", err)
     }
     defer dbConn.Close()
 
-    log.Errorf("+++open zmq")
     log.Info("Connecting to Consumer queue")
     consumer, err := utils.ConnectToMQ(config.ZeroMQComm, &config.ZMQHostName)
     if (nil != err) {
@@ -308,16 +299,13 @@ func main() {
     }
     defer consumer.Close()
 
-    log.Errorf("+++create queries")
     queries := db.New(dbConn)
 
     var serversWG sync.WaitGroup
     // not very useful, as i dont have defined terminating scenario, but available for use
 
-    log.Errorf("+++create terminate chanel")
     terminateApp := make(chan struct{})
 
-    log.Errorf("+++create threadpools")
     // start worker threads
     readersWG := startDBreaders(queries, numDBReaders, terminateApp)
     handlersWG := startTaskHandlingWorkers(numActionWorkers, terminateApp)
@@ -325,15 +313,12 @@ func main() {
 
     // set rate limiter for msg handling
     limiter := rate.NewLimiter(rate.Limit(config.RateLimit), 1/*sec*/)
-log.Error("+++running msg workers")
     // handle requests
     go processMsgsWorker(consumer, limiter)
 
-log.Error("+++prom server")
     // goroutine to handle prometheus server
     go utils.RunPrometheusServer(&config.MonitoringConfig, registerPromethesDataCallback, &serversWG, terminateApp)
 
-log.Error("+++runnign pprof server server")
     // goroutine to handle pprof server
     go utils.RunPprofServer(&config.MonitoringConfig, &serversWG, terminateApp)
 
